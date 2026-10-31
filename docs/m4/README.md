@@ -68,8 +68,8 @@ Do not wait for the backend to run. Build components immediately against mock JS
 
 | Time | Target | Status |
 |---|---|---|
-| Oct 31, 5:30 PM | Stitch design tokens exported; UI shell running with mock data | Pending |
-| Oct 31, 7:00 PM | Review Round 1: Context form + Scheme cards running locally | Pending |
+| Oct 31, 5:30 PM | Stitch design tokens exported; UI shell running with mock data | Done |
+| Oct 31, 7:00 PM | Review Round 1: Context form + Scheme cards running locally against frozen contracts | Done |
 | Oct 31, 12:05 AM | Complete question flow (answering/skipping) integrated with real backend API | Pending |
 | Nov 1, 3:00 AM | Document checklist and action plan integrated with real API | Pending |
 | Nov 1, 6:30 AM | UI polish, zero dead buttons, responsive verification on presentation device | Pending |

@@ -85,6 +85,15 @@
 
 54. **`AttributeSpec.keep_wording`**: attributes whose legal meaning a rewrite could shift are never sent to the rephrasing LLM. Set on `domicile_karnataka` after Gemini turned "domicile" into "native of Karnataka". Its registry question now reads "Are you legally domiciled in Karnataka (not just currently living there)?".
 
+## Integration with Agent 1 (2026-10-31)
+
+55. **`income` is an alias of `annual_family_income`**: Agent 1's `related_attribute` uses it.
+56. **A known attribute with no operator is sent to the LLM for structuring** (previously only `None`/`unmapped:*`). Agent 1 delivers attribute + text without an operator; without this the rule stayed *Needs clarification* forever.
+57. **`verified` needs both `source_url` and `evidence`**; the deterministic pass downgrades a verified rule missing either to `unverified`. Other statuses are left as they are.
+58. **Compound criteria are split, never truncated.** The structuring LLM returns one item per condition (same id); later parts get ids `<id>_2`, `<id>_3`… and share the criterion and evidence. Conditions no attribute fits become `unmapped:<name>` (needs clarification), which keeps the scheme from *Potential match*. Found live: NSP's income + merit list + regular-course rule had kept only the income part. Dedup of LLM-structured rules keys on criterion + rule so a re-run keeps every part.
+59. **Conditional limits are never verified.** If a structured rule's evidence states another threshold of similar size (0.25x-4x) that none of the rule's parts uses, e.g. "Rs 2.5 lakh for Category-I and Rs 1 lakh for Category 2A", its comparable parts become `uncertain` and the scheme gets an uncertainty note. Found live on the BCW post-matric rule. The number check also skips unmapped parts, whose value is a name, not a threshold.
+60. **Select values must be stated in the evidence** (option or a listed synonym, whole words), for structured and extracted rules; otherwise `uncertain`. Found live: "post-matric education" was structured as `education_level eq Postgraduate`, which would have excluded every undergraduate.
+
 ## Build
 
 16. **Phase order** follows the event schedule: 0, 1, 2, 3, 5 (questions), 4 (normalizer), 6 (planning). Review 1 needs questions, not the LLM.

@@ -39,3 +39,17 @@ Document decisions, provider choices, and technical trade-offs here.
   4. Validate all output with `python -m member2.check_member1`.
 * **Consequences:** Zero conversion code needed in backend; full compatibility across Discovery, Verification, and Planning.
 
+### [2026-10-31] ADR-004: Compliance Adapter, Gemini Model Fix, and Orchestration Handoff
+* **Status:** Accepted
+* **Context:** Review Round 1 identified three critical integration issues:
+  1. Fictional model name `"gemini-3.5-flash-lite"` returned HTTP 404.
+  2. Schema divergence between M1's `SchemeRecord` and M2's canonical model.
+  3. Prototype `api/` developed by M1 conflicted with M3's role as backend and orchestration lead.
+* **Decision:**
+  1. Replaced fictional model with valid free-tier model `"gemini-flash-lite-latest"`.
+  2. Implemented `discovery_agent/adapter.py` providing bidirectional transformation and updated `fallback_schemes.py` to produce canonical `member2.models.SchemeRecord` instances with sourced documents.
+  3. Transferred backend/API ownership to Member 3 and removed prototype `api/` and `tests/test_api.py`.
+  4. Renamed root interactive script `test_gemini.py` to `demo_gemini_interactive.py` to unblock automated `pytest`.
+* **Consequences:** Clean repository layout, full compliance with Member 2 and Member 3, zero test discovery lockups.
+
+

@@ -34,8 +34,8 @@ Update it at the end of every working session (and whenever a feature, bug or op
 
 - [x] Live LLM path confirmed with Gemini (`gemini-flash-lite-latest`). Claude path still untested live (no key).
 - [x] Domicile question drifted to "native" under rephrase: fixed with `keep_wording` (DECISIONS #54).
-- [ ] **Integration with Member 1's real output not yet checked.** Field names follow plan.md §5; confirm against their actual JSON.
-- [ ] **Integration with Member 3's backend not yet checked.** They must normalize once and persist, seed answers from the context form, and pass keyword args to `build_action_plan` (see README).
+- [x] **Integration with Member 1's output confirmed:** Member 1 built `discovery_agent/adapter.py` and updated `fallback_schemes.py` to output canonical `member2.models.SchemeRecord` instances with sourced documents.
+- [x] **Integration with Member 3's backend planned:** M3 updated `M3_Coding_Round_1_Plan.md` adopting `apply_answers` context seeding, `history_json` persistence, and keyword arguments on `build_action_plan`.
 - [ ] `residence_area` and `household_card_type` attributes (DECISIONS #20): remove if the real demo schemes never use them.
 
 ## Known bugs
@@ -44,10 +44,16 @@ None open.
 
 ## Next steps
 
-1. Get a sample of Member 1's scheme JSON and run `python -m member2.check_member1 <file>`; fix or report every line it prints.
-2. Pair with Member 3 on the API wiring.
+1. Validate live extraction through `discovery_agent/adapter.py` using `python -m member2.check_member1`.
+2. Support Member 3 during end-to-end API wiring and SQLite session persistence tests.
 
 ## Session log
+
+### 2026-10-31 (Review Round 1)
+- Harmonized contracts across team: `docs/agents.md` updated to treat `plan.md §5` and `member2` as the single source of truth.
+- Member 1 built `discovery_agent/adapter.py` and converted `fallback_schemes.py` to produce canonical `member2.models.SchemeRecord` records with sourced `DocumentRequirement` objects.
+- Member 3 updated `M3_Coding_Round_1_Plan.md` to directly orchestrate Member 2's `normalize_requirements`, `assess_schemes`, `generate_consolidated_questions`, and `build_action_plan`.
+- Merged branches into `feat/agent1v2` and `main`. 282 offline tests remain 100% green.
 
 ### 2026-10-31 (later)
 - Pushed to team repo `Styleads/Unlocked`, branch `feat/agent2&agent3` (first pushed as `member2`, since deleted): code at repo root, plus docs/m2 updates (ADR-003..005, debugging log). No PR opened yet.

@@ -13,7 +13,8 @@
 * **Severity:** High
 * **Symptom:** Documents listed without an explicit, distinct `source_url` on the document itself are excluded from the action plan with a warning: `"{doc.name} was left out: no source confirms it is required."`
 * **Root Cause:** In real portal extraction, schemes usually list required documents on the scheme page without individual per-document URLs. Converting string documents via `_coerce_string_documents` yields `source_url=None`, causing Agent 3 to drop every document.
-* **Recommended Fix:** If `doc.source_url` is missing or `None`, fallback to `scheme.official_sources[0]` or `scheme.application_url` before deciding to exclude it.
+* **Resolution / Status:** Mitigated in Review Round 1. Member 1 updated `fallback_schemes.py` to instantiate `DocumentRequirement` objects with verified `source_url` and `evidence`. Member 1 also implemented `discovery_agent/adapter.py` which preserves document source URLs from scheme official sources.
+* **Recommended Follow-up:** Add defensive fallback in `member2/planning.py` to inherit `scheme.official_sources[0]` if `doc.source_url` is absent.
 
 ### Issue 3.2: Omission of Karnataka Baseline Document Prerequisites
 * **Location:** [`member2/planning.py`](file:///home/kruthik/coding/Unlocked/member2/planning.py#L78-L90)
@@ -24,7 +25,7 @@
   - `doc_rd_income_cert` $\rightarrow$ depends on Aadhaar and Ration Card.
   - `doc_ssp_eattestation` $\rightarrow$ depends on RD Number, Marks Card, Aadhaar.
   - `doc_domicile_cert` $\rightarrow$ depends on Aadhaar, School Study Certificate.
-* **Recommended Fix:** Restore `KNOWN_PREREQUISITES` as a fallback knowledge graph in `planning.py` so common Karnataka certificates show realistic prerequisite chains.
+* **Resolution / Status:** Logged for Coding Round 2 DAG refinement. Baseline `KNOWN_PREREQUISITES` to be added into `planning.py`.
 
 ### Issue 3.3: Missing `issuing_authority` in `ChecklistItem`
 * **Location:** [`member2/models.py`](file:///home/kruthik/coding/Unlocked/member2/models.py#L214) & [`member2/documents.py`](file:///home/kruthik/coding/Unlocked/member2/documents.py)

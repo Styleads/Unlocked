@@ -42,8 +42,8 @@
 
 | Time | Target | Status |
 |---|---|---|
-| Oct 31, 5:30 PM | 1 working search or verified fallback candidate matching `SchemeRecord` | Pending |
-| Oct 31, 7:00 PM | Review Round 1: Discovery returns real or labelled fallback schemes with sources | Pending |
+| Oct 31, 5:30 PM | 1 working search or verified fallback candidate matching `SchemeRecord` | Done |
+| Oct 31, 7:00 PM | Review Round 1: Discovery returns real or labelled fallback schemes with sources, compliant with M2 contracts | Done |
 | Oct 31, 12:05 AM | Multi-query discovery, deduplication, error handling completed | Pending |
 | Nov 1, 3:00 AM | Action scaffold ready; email or `.ics` generation tested | Pending |
 

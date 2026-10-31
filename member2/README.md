@@ -52,6 +52,6 @@ Requirement: `satisfied`, `not_satisfied`, `unknown`, `needs_clarification`, `un
 
 ## Member 1
 
-Extract toward the attribute ids in `attributes.py`. Each requirement needs `criterion`, `source_url` and a verbatim `evidence` quote (`attribute`/`operator`/`value` may be null; the normalizer fills them). Documents should be `{name, source_url, evidence}`; a bare string is accepted but has no source, so it is left out of the plan.
+Extract toward the attribute ids in `attributes.py`. Each requirement needs `criterion`, `source_url` and a verbatim `evidence` quote (`attribute`/`operator`/`value` may be null; the normalizer fills them). Documents should be `{name, source_url, evidence}`; a bare string is accepted but has no source, so it is left out of the plan (Member 1's `discovery_agent/adapter.py` provides this mapping automatically).
 
 Design choices and deviations from the spec: `DECISIONS.md`.
