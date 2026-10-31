@@ -426,7 +426,7 @@ def validate_gemini_translation_payload(
 async def translate_schemes_to_kannada(
     schemes: list[SchemeRecord],
     client: Any | None = None,
-    model: str = "gemini-3.5-flash-lite",
+    model: str = "gemini-flash-lite-latest",
 ) -> TranslationResult:
     """
     Translate a list of SchemeRecord objects into Kannada with strict validation.

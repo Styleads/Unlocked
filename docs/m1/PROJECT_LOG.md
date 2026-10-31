@@ -15,7 +15,7 @@
 - **Language Support**: Bilingual discovery (English `en` and Kannada `kn`). Authentic Kannada overlays for fallback schemes; structured Gemini translation for live schemes.
 - **Core Orchestration**: Python 3.14 asynchronous pipeline (`asyncio`). Searches run concurrently via `asyncio.gather`.
 - **Search Engine**: Tavily Search API with strict domain restriction (`include_domains=["gov.in", "nic.in", ...]`) and secondary hostname validation. Features exponential backoff and jitter for HTTP 429 and network timeouts.
-- **LLM Engine**: Google Gemini via the official `google-genai` SDK (`gemini-3.5-flash-lite`). Direct API integration using `generate_content` and `chats.create`.
+- **LLM Engine**: Google Gemini via the official `google-genai` SDK (`gemini-flash-lite-latest`). Direct API integration using `generate_content` and `chats.create`.
 - **Verification Engine**: Multi-stage claim-level evidence verification. Every extracted claim must be explicitly supported by an exact literal quotation found in the raw excerpt of an authorized official domain.
 - **Fallback Engine**: Local collection of 5 pre-verified Karnataka/Central schemes (`PMFBY`, `PM-KISAN`, `Raitha Siri`, `Vidyasiri`, `PMKSY`), labeled `discovery_source="fallback"`.
 - **Data Schemas**: Strict Pydantic v2 schemas (`SchemeRecord`, `SchemeClaim`, `SchemeCriterion`, `SourceEvidence`, `DiscoverRequest`, `DiscoverResponse`, `HealthResponse`).
@@ -46,7 +46,7 @@
 - **Evidence**: `test_search_timeout_handled_gracefully`, `test_search_rate_limit_handled_without_crashing`, `test_partial_search_failure_returns_surviving_results`.
 
 ### Feature 4: Structured Scheme Extraction
-- **Details**: Calls Gemini (`gemini-3.5-flash-lite`) with JSON schema enforcement to parse search excerpts into structured schemes, target groups, benefits, criteria, required documents, and individual factual claims.
+- **Details**: Calls Gemini (`gemini-flash-lite-latest`) with JSON schema enforcement to parse search excerpts into structured schemes, target groups, benefits, criteria, required documents, and individual factual claims.
 - **Files**: `discovery_agent/scheme_extractor.py`, `discovery_agent/prompts.py`
 - **Current Status**: Implemented & verified.
 - **Evidence**: `test_multiple_schemes_extracted`, `test_discovery_returns_multiple_schemes_in_one_run`, `live_api_test.py`.

@@ -29,3 +29,13 @@ Document decisions regarding backend framework, SQLite schemas, session manageme
 * **Decision:** Use plain async Python functions for the master orchestrator.
 * **Consequences:** Eliminates external framework debugging overhead; makes state transitions 100% transparent and deterministic.
 
+### [2026-10-31] ADR-003: Member 2 Integration & State Contract
+* **Status:** Accepted
+* **Context:** M2 delivers synchronous, side-effect-free algorithms (`normalize_requirements`, `assess_schemes`, `generate_consolidated_questions`, `apply_answers`, `build_action_plan`). The orchestrator must handle persistence and avoid state collapse.
+* **Decision:**
+  1. Store `answers_json` (attribute -> `Answer` object) and `history_json` (question ID -> `AnswerState`) in SQLite.
+  2. Use `apply_answers` to seed from context and to process question submissions. Never merge into a flat dictionary `{**context, **answers}` so non-destructive skip semantics are preserved.
+  3. Normalize once per discovery run and persist the normalized schemes with their `normalized_by` tag.
+  4. Pass keyword arguments to `build_action_plan(schemes, user_documents=..., assessments=...)`.
+* **Consequences:** Clean separation of concerns: Member 2 owns pure business and graph logic; Member 3 owns persistence, concurrency, and REST routing.
+

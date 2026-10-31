@@ -29,3 +29,13 @@ Document decisions, provider choices, and technical trade-offs here.
 * **Decision:** Pre-compile 5 verified Karnataka schemes (SSP Scholarship, Vidyasiri, Yuva Nidhi, Gruha Jyothi, Dr. B.R. Ambedkar Fellowship) with real official URLs.
 * **Consequences:** All records must have `source_type: "fallback"` to maintain transparency and truthfulness in demo.
 
+### [2026-10-31] ADR-003: Pipeline Contract & Attribute Alignment with Member 2
+* **Status:** Accepted
+* **Context:** Agent 2 and Agent 3 expect structured requirements and sourced document objects. Unaligned attribute keys (e.g. `karnataka_domicile` vs `domicile_karnataka`) or string-only documents break the downstream questionnaire and action plan.
+* **Decision:** 
+  1. Extract canonical attribute IDs conforming strictly to `member2/attributes.py` (`domicile_karnataka`, `annual_family_income`, `social_category`, etc.).
+  2. Structure documents as `{name, source_url, evidence}` objects.
+  3. Use operators `is_true` / `is_false` for booleans.
+  4. Validate all output with `python -m member2.check_member1`.
+* **Consequences:** Zero conversion code needed in backend; full compatibility across Discovery, Verification, and Planning.
+

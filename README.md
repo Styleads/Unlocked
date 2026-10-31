@@ -47,7 +47,7 @@ Navigating government welfare systems in India is challenging due to fragmented 
 ### Stack in Use
 - **Language**: Python 3.14.6
 - **Web Framework**: FastAPI 0.162.0 with Uvicorn ASGI server
-- **LLM Provider & SDK**: Google Gemini via official `google-genai` SDK (`gemini-3.5-flash-lite`)
+- **LLM Provider & SDK**: Google Gemini via official `google-genai` SDK (`gemini-flash-lite-latest`)
 - **Search Provider**: Tavily Search API (`tavily-python`) restricted to official domains
 - **Data Modeling & Validation**: Pydantic v2 (`BaseModel`, `Field`, `Literal`, `ConfigDict`)
 - **Terminal UI**: Rich (`Console`, `Table`, `Panel`, `box`)

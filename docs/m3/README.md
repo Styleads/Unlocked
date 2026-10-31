@@ -40,6 +40,27 @@
   - `POST /api/checklist/{item_id}`
   - `POST /api/actions` (P1)
 
+> [!IMPORTANT]
+> **Orchestrator Rules for Calling Member 2's Modules:**
+> 1. **Normalize once per discovery run and save the result:**
+>    ```python
+>    normalized_schemes = normalize_requirements(raw_schemes, llm=default_client())
+>    await db.save_schemes(session_id, normalized_schemes)
+>    ```
+>    Schemes carry a `normalized_by` marker that stops repeat LLM calls. Pass `normalized_schemes` to all subsequent assessment and planning calls.
+> 2. **Seed answers from the context form with `apply_answers`:**
+>    ```python
+>    answers, history = apply_answers({}, {}, context_form_answers)
+>    ```
+>    Without this, attributes already gathered during context initialization will be re-asked in consolidated questions.
+> 3. **Preserve `answers` and `history`:**
+>    When the user submits answers, call `apply_answers(answers, history, submitted)` and persist both. Do not merge into a flat dict `{**session.context, **answers}` because skips (`AnswerState.skipped`) and "not sure" (`AnswerState.unknown`) must remain distinct from answered values.
+> 4. **Call `build_action_plan` with keyword arguments:**
+>    The first argument is `selected_schemes`. All subsequent arguments must be named:
+>    ```python
+>    plan = build_action_plan(schemes, user_documents=docs, assessments=assessments)
+>    ```
+
 ---
 
 ## 2. Checkpoints Timeline

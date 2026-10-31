@@ -33,7 +33,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 load_dotenv(PROJECT_ROOT / ".env", override=True)
 
-MODEL = "gemini-3.5-flash-lite"
+MODEL = "gemini-flash-lite-latest"
 
 
 # --------------------------------------------------

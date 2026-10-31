@@ -52,7 +52,7 @@ YOUR RULES:
     will be added in a later development stage.
 """
 
-MODEL = "gemini-3.5-flash-lite"
+MODEL = "gemini-flash-lite-latest"
 
 
 def create_agent_chat(api_key: str | None = None, model: str = MODEL):

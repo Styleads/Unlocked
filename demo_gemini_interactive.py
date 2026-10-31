@@ -16,7 +16,7 @@ if not api_key:
 
 client = genai.Client(api_key=api_key)
 
-MODEL = "gemini-3.5-flash-lite"
+MODEL = "gemini-flash-lite-latest"
 
 SYSTEM_INSTRUCTION = """
 You are the Discovery Agent for Unlocked.

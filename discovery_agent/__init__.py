@@ -4,6 +4,10 @@ Project Unlocked — Discovery Agent Package.
 Autonomous discovery engine for Indian and Karnataka government benefits.
 """
 
+from discovery_agent.adapter import (
+    to_canonical_scheme,
+    to_canonical_schemes,
+)
 from discovery_agent.discovery_pipeline import (
     build_search_queries,
     deduplicate_results,
@@ -44,6 +48,8 @@ from discovery_agent.search_provider import (
 __all__ = [
     # Main discovery entrypoint
     "discover_schemes",
+    "to_canonical_scheme",
+    "to_canonical_schemes",
     "build_search_queries",
     "deduplicate_results",
     "load_fallback_schemes",

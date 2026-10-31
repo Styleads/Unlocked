@@ -8,7 +8,7 @@ from discovery_agent.scheme_extractor import extract_schemes
 
 load_dotenv()
 
-MODEL = "gemini-3.5-flash-lite"
+MODEL = "gemini-flash-lite-latest"
 
 query = (
     "official Karnataka farmer crop insurance schemes "

@@ -13,11 +13,23 @@
 ### Agent 1: Discovery Agent (P0)
 - [ ] Connect web search API (Tavily, Serper, or SearXNG).
 - [ ] Formulate search queries targeted at official Karnataka and central portals (`karnataka.gov.in`, `sevasindhu.karnataka.gov.in`, etc.).
-- [ ] Parse extracted scheme data into `SchemeRecord` format.
+- [ ] Parse extracted scheme data into `SchemeRecord` format matching [`docs/agents.md §2.1`](file:///home/kruthik/coding/Unlocked/docs/agents.md#L45).
 - [ ] Preserve verbatim source excerpts (`evidence`) and official source URLs (`source_url`).
 - [ ] Deduplicate schemes across queries.
 - [ ] Create a robust fallback dataset of 4–6 real Karnataka schemes (e.g., SSP Post-Matric Scholarship, Vidyasiri, Yuva Nidhi, Gruha Lakshmi) tagged with `source_type: "fallback"` for demo safety.
 - [ ] Deliverable: `async def discover_schemes(user_context, search_scope) -> list[SchemeRecord]`
+
+> [!IMPORTANT]
+> **Strict Contract Requirements for Agent 1 Output (Compatibility with Agent 2/3):**
+> 1. **Documents must be objects** `{name: str, source_url: str, evidence: str}`, not plain strings. Plain strings have no source, so they will be dropped by Agent 3's action plan.
+> 2. **Attribute IDs must match `member2/attributes.py`** exactly (e.g., use `domicile_karnataka`, NOT `karnataka_domicile`).
+> 3. **Operators** must use `is_true` / `is_false` instead of `"boolean"`. Supported: `eq`, `neq`, `in`, `not_in`, `lt`, `lte`, `gt`, `gte`, `is_true`, `is_false`.
+> 4. **Requirement status** on extraction is only `verified | unverified | uncertain`. `needs_clarification` is an assessment result, not an extraction status.
+> 5. **LLM Model:** Use `gemini-flash-lite-latest` (or `gemini-1.5-flash`). Note: `gemini-2.5-flash` returns 404 on current keys.
+> 6. **Pre-flight Check:** Member 1 can validate any scheme JSON file against the pipeline contract by running:
+>    ```bash
+>    python -m member2.check_member1 path/to/schemes.json
+>    ```
 
 ### Agent 4: Action & Follow-Through Agent (P1)
 - [ ] Generate source-grounded email drafts for RTI inquiries or departmental clarifications (strictly reviewable by user, no auto-dispatch).
