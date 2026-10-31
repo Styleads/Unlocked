@@ -39,3 +39,13 @@ Document decisions regarding backend framework, SQLite schemas, session manageme
   4. Pass keyword arguments to `build_action_plan(schemes, user_documents=..., assessments=...)`.
 * **Consequences:** Clean separation of concerns: Member 2 owns pure business and graph logic; Member 3 owns persistence, concurrency, and REST routing.
 
+### [2026-10-31] ADR-004: Review Round 1 Plan Harmonization & Adapter Adoption
+* **Status:** Accepted
+* **Context:** Initial Coding Round 1 plan for M3 assumed Member 1 and Member 2 modules had not landed and relied on placeholder stubs. In reality, M2 landed 282 passed tests and M1 delivered the Discovery engine with `discovery_agent/adapter.py`.
+* **Decision:**
+  1. Updated `M3_Coding_Round_1_Plan.md` into an active, live orchestration plan connecting M1's `discover_schemes()` and M2's `normalize_requirements()`, `assess_schemes()`, `generate_consolidated_questions()`, and `build_action_plan()`.
+  2. Adopted `discovery_agent/adapter.py` as the canonical transformer between M1 raw extraction schemas and M2 canonical models.
+  3. Formally consolidated backend REST and persistence ownership under Member 3 (`api/` and `data/unlocked.db`).
+* **Consequences:** Member 3's deliverable for Review Round 1 is a live end-to-end 6-stage slice rather than an isolated mock.
+
+

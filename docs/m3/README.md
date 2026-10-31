@@ -67,8 +67,8 @@
 
 | Time | Target | Status |
 |---|---|---|
-| Oct 31, 5:30 PM | FastAPI runs, SQLite initializes, session created, contracts agreed | Pending |
-| Oct 31, 7:00 PM | Review Round 1: Orchestrator connects context -> discovery -> initial result | Pending |
+| Oct 31, 5:30 PM | FastAPI runs, SQLite initializes, session created, contracts agreed | Done |
+| Oct 31, 7:00 PM | Review Round 1: Orchestrator connects context -> discovery -> initial result (Plan updated in `M3_Coding_Round_1_Plan.md`) | Done |
 | Oct 31, 12:05 AM | Complete flow: discovery -> question storage -> reassessment persistence | Pending |
 | Nov 1, 3:00 AM | End-to-end integration with frontend; document plan persisted | Pending |
 | Nov 1, 6:30 AM | Code freeze, tag demo commit, dry-run rehearsed | Pending |

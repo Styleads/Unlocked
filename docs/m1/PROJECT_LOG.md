@@ -245,3 +245,16 @@ uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
    - Verified that no sensitive files or credentials were ever staged or tracked by Git (`git ls-files` is empty).
    - Validated that `git status --short` properly ignores `.env`, `user_profile.json`, `venv/`, and `.pytest_cache/`.
 
+---
+
+## Session 6 — Review Round 1 Contract Harmonization & Compliance Audit
+
+### Summary of Changes
+1. **Model String Normalization**: Replaced fictional `"gemini-3.5-flash-lite"` with valid free-tier model `"gemini-flash-lite-latest"` across `discovery_agent/agent.py`, `discovery_pipeline.py`, `kannada_translator.py`, and test scripts.
+2. **Compliance Adapter Created**: Implemented `discovery_agent/adapter.py` providing bidirectional schema transformation between Member 1's `SchemeRecord` and Member 2's canonical model.
+3. **Fallback Dataset Harmonization**: Updated `discovery_agent/fallback_schemes.py` to instantiate `DocumentRequirement` objects with verified `source_url` and `evidence`, preventing document drop-off in Member 2's planning engine.
+4. **Backend Role Clarification**: Removed prototype `api/` and `tests/test_api.py`, confirming Member 3's sole ownership of backend orchestration and SQLite persistence.
+5. **Interactive Script Cleanup**: Renamed `test_gemini.py` to `demo_gemini_interactive.py` to prevent pytest freezing on user inputs during test discovery.
+6. **Documentation Relocation**: Organized root audit documents into `docs/m1/` (`AUDIT_REPORT.md`, `DECISIONS.md`, `HANDOFF_MEMBER3.md`, `PROJECT_LOG.md`) and removed obsolete `Plan.md`.
+
+

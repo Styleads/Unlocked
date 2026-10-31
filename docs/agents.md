@@ -118,6 +118,7 @@ class SchemeRecord(BaseModel):
 >    ```bash
 >    python -m member2.check_member1 path/to/schemes.json
 >    ```
+> 6. **Compliance Adapter:** Member 1 maintains `discovery_agent/adapter.py` (`adapt_m1_to_m2_scheme`), which automatically maps raw extraction outputs into canonical `member2.models.SchemeRecord` instances with sourced documents and canonical attributes.
 
 ### 2.2 System Prompt & Extraction Schema
 

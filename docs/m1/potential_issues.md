@@ -124,3 +124,4 @@
 * **Recommended Fix:**
   - Cache translated fallback records locally (static overlay dictionary).
   - Perform live LLM translations asynchronously only when the user explicitly requests Kannada output (`locale="kn"`).
+

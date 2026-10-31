@@ -43,3 +43,13 @@ Document UI framework decisions, state management, design tokens, and mock strat
   4. Render the Action Plan using `ActionPlan.checklist` (`ChecklistItem.order`, `status`, `reason`) and highlight `shared_prerequisites`.
 * **Consequences:** Eliminates schema mismatch bugs between frontend form submission and backend evaluation.
 
+### [2026-10-31] ADR-004: Review Round 1 Endpoint Specifications & Session Restore
+* **Status:** Accepted
+* **Context:** Member 3 published the revised `M3_Coding_Round_1_Plan.md` outlining the consolidated REST API routes for sessions, discovery, questions, answers, and action planning.
+* **Decision:**
+  1. Frontend uses session-scoped endpoints (`/api/sessions/{session_id}/...`) rather than legacy flat endpoints.
+  2. The initial context landing form feeds `POST /api/sessions`, automatically seeding answered demographic attributes.
+  3. Swapping mock fixtures for live backend calls occurs seamlessly against the frozen schemas.
+* **Consequences:** Frontend development remains completely unblocked while aligning perfectly with Member 3's backend implementation.
+
+
