@@ -115,6 +115,8 @@ def build_scheme_views(
                 ],
                 application_steps=s.application_steps,
                 application_url=s.application_url,
+                deadline=s.deadline,
+                deadline_source_url=s.deadline_source_url,
                 official_sources=s.official_sources,
                 source_type=s.source_type,
                 assessment_status=ass.status.value if ass else None,

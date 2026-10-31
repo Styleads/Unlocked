@@ -115,6 +115,19 @@ def build_search_queries(
         if isinstance(interest, str) and interest.strip()
     ))
 
+    # Optional demographic & education qualifiers to focus search
+    personal = user_context.get("personal", {}) if isinstance(user_context.get("personal"), dict) else {}
+    education = user_context.get("education", {}) if isinstance(user_context.get("education"), dict) else {}
+    social_category = personal.get("social_category") or user_context.get("social_category")
+    course_type = education.get("course_type") or user_context.get("course_type")
+
+    qualifiers = []
+    if social_category and isinstance(social_category, str):
+        qualifiers.append(social_category.strip())
+    if course_type and isinstance(course_type, str):
+        qualifiers.append(course_type.strip())
+    qualifier_str = f" ({', '.join(qualifiers)})" if qualifiers else ""
+
     queries = []
 
     # Guided discovery: focus on the user's interests.
@@ -123,14 +136,21 @@ def build_search_queries(
         for interest in interests:
             queries.append(
                 f"Government schemes and benefits for "
-                f"{occupation} related to {interest} "
+                f"{occupation}{qualifier_str} related to {interest} "
                 f"in {location_text}"
+            )
+
+        # For student welfare/scholarship/hostel interests in Karnataka, add SSP portal query
+        if any(term in " ".join(interests).lower() for term in ("scholarship", "fee", "hostel", "stipend")):
+            cat_str = f" {social_category}" if social_category else ""
+            queries.append(
+                f"Karnataka State Scholarship Portal SSP post matric{cat_str} scholarship in {location_text}"
             )
 
         if not queries:
             queries.append(
                 f"Government welfare and benefit schemes "
-                f"for {occupation} in {location_text}"
+                f"for {occupation}{qualifier_str} in {location_text}"
             )
 
     # Discover All: interests plus broader benefit searches.
@@ -139,7 +159,7 @@ def build_search_queries(
         for interest in interests:
             queries.append(
                 f"Government schemes and benefits for "
-                f"{occupation} related to {interest} "
+                f"{occupation}{qualifier_str} related to {interest} "
                 f"in {location_text}"
             )
 

@@ -175,6 +175,18 @@ def generate_consolidated_questions(
         if answers.get(a, Answer(attribute=a, state=AnswerState.unanswered)).state == AnswerState.unanswered
         and history.get(question_id(a), AnswerState.unanswered) == AnswerState.unanswered
     }
+
+    # Filter out residency/domicile questions if citizen is already known to be in Karnataka
+    is_kar = (
+        answers.get("domicile_karnataka", Answer(attribute="", state=AnswerState.unanswered)).value is True
+        or str(answers.get("state", Answer(attribute="", state=AnswerState.unanswered)).value or "").lower() == "karnataka"
+    )
+    if is_kar:
+        candidates = {
+            a: u for a, u in candidates.items()
+            if a not in ("state", "domicile_karnataka") and not (a.startswith("unmapped:") and "karnataka" in a.lower())
+        }
+
     picked = _rank(candidates)[: max(batch_size, 0)]
     log.debug("consolidated questions: %s", picked)
     return _rephrase([_build(_spec(a, candidates[a]), candidates[a], AnswerState.unanswered) for a in picked], rephrase_llm)

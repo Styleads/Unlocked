@@ -109,6 +109,11 @@ class UserProfileInput(BaseModel):
             employment["occupation"] = self.occupation
 
         location = dict(data.get("location") or {})
+        from member2.attributes import is_karnataka_district
+        if is_karnataka_district(self.district) or is_karnataka_district(location.get("district")):
+            location["state"] = "Karnataka"
+            if not self.state:
+                self.state = "Karnataka"
         if self.state and "state" not in location:
             location["state"] = self.state
         if self.district and "district" not in location:
@@ -162,8 +167,20 @@ class UserProfileInput(BaseModel):
                     "value": val,
                 })
 
-        # Flat fields
-        _add("state", self.state)
+        # Check Karnataka residency / district
+        from member2.attributes import is_karnataka_district
+        is_kar = (
+            (self.state and str(self.state).strip().lower() == "karnataka")
+            or is_karnataka_district(self.district)
+            or (self.location and is_karnataka_district(self.location.get("district")))
+            or (self.location and str(self.location.get("state") or "").strip().lower() == "karnataka")
+        )
+        if is_kar:
+            _add("state", "Karnataka")
+            _add("domicile_karnataka", True)
+        elif self.state:
+            _add("state", self.state)
+
         _add("district", self.district)
         _add("annual_family_income", self.annual_family_income or self.annual_income)
         _add("age", self.age)
@@ -287,6 +304,8 @@ class SchemeView(BaseModel):
     documents: list[dict[str, Any]] = Field(default_factory=list)
     application_steps: list[str] = Field(default_factory=list)
     application_url: Optional[str] = None
+    deadline: Optional[str] = None
+    deadline_source_url: Optional[str] = None
     official_sources: list[str] = Field(default_factory=list)
     source_type: str = "live_search"
     # Assessment overlays

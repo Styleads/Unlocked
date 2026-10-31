@@ -124,6 +124,14 @@ class SchemeRecord(BaseModel):
     application_url: str | None = None
     official_url: str | None = None
 
+    # Contact information and deadlines
+    deadline: str | None = None
+    deadline_source_url: str | None = None
+    contact_email: str | None = None
+    contact_email_source_url: str | None = None
+    contact_phone: str | None = None
+    contact_phone_source_url: str | None = None
+
     # Government classification
     government_level: GovernmentLevel = "unknown"
     department: str | None = None

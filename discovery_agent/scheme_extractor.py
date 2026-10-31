@@ -106,6 +106,8 @@ Return JSON only:
       "application_process": null,
       "application_url": null,
       "official_url": null,
+      "deadline": null,
+      "deadline_source_url": null,
       "government_level": "unknown",
       "department": null,
       "source_evidence": [
@@ -273,7 +275,10 @@ def normalize_quote(value):
     if not isinstance(value, str):
         return ""
 
-    return " ".join(value.split()).casefold()
+    val = value.replace("\u201c", '"').replace("\u201d", '"')
+    val = val.replace("\u2018", "'").replace("\u2019", "'")
+    val = val.replace("\xa0", " ").replace("—", "-").replace("–", "-")
+    return " ".join(val.split()).casefold()
 
 
 def normalize_text(value):
@@ -292,13 +297,26 @@ def normalize_text(value):
 MIN_QUOTE_CHARS = 15
 
 
+def _find_official_source(source_url, official_sources):
+    """Find source entry handling trailing slashes and case differences."""
+    if not isinstance(source_url, str) or not official_sources:
+        return None
+    if source_url in official_sources:
+        return official_sources[source_url]
+    s_norm = source_url.rstrip("/").lower()
+    for u, data in official_sources.items():
+        if isinstance(u, str) and u.rstrip("/").lower() == s_norm:
+            return data
+    return None
+
+
 def verbatim_evidence(evidence, source_url, official_sources):
     """Return the model's quote only if it appears word for word in the full
     content of the page it cites; otherwise None. Deterministic: the model
     proposes the quote, Python decides whether it is real."""
     if not isinstance(evidence, str) or len(evidence.strip()) < MIN_QUOTE_CHARS:
         return None
-    source = official_sources.get(source_url) if isinstance(source_url, str) else None
+    source = _find_official_source(source_url, official_sources)
     if not source:
         return None
     if normalize_quote(evidence) not in normalize_quote(source.get("content", "")):
@@ -826,6 +844,9 @@ OFFICIAL SEARCH RESULTS:
 
         if raw_scheme.get("application_url") not in evidence_urls:
             raw_scheme["application_url"] = None
+
+        if raw_scheme.get("deadline_source_url") not in evidence_urls:
+            raw_scheme["deadline_source_url"] = None
 
         # ----------------------------------------------------
         # C2. Clean claims

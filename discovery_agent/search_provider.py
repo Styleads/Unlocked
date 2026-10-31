@@ -42,6 +42,12 @@ OFFICIAL_DOMAINS = [
     "pib.gov.in",
     "india.gov.in",
     "karnataka.gov.in",
+    "ssp.postmatric.karnataka.gov.in",
+    "ssp.karnataka.gov.in",
+    "swd.karnataka.gov.in",
+    "bcwd.karnataka.gov.in",
+    "shp.karnataka.gov.in",
+    "sw.kar.nic.in",
 ]
 
 # Search snippets (~1,500 chars) rarely contain the eligibility rules or the

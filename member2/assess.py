@@ -86,6 +86,14 @@ def assess_requirement(req: Requirement, user_answers: AnswersInput = None) -> R
     if not mapped:
         if is_condition(req.attribute):
             # A scheme's own condition, asked as a yes/no question (DECISIONS #63).
+            # If the condition is about Karnataka residency and user is in Karnataka, satisfy it immediately.
+            is_kar_user = (
+                answers.get("domicile_karnataka", Answer(attribute="", state=AnswerState.unanswered)).value is True
+                or str(answers.get("state", Answer(attribute="", state=AnswerState.unanswered)).value or "").lower() == "karnataka"
+            )
+            if "karnataka" in req.attribute.lower() and is_kar_user:
+                return _result(req, RequirementStatus.satisfied, "You are confirmed to be a resident of Karnataka.")
+
             own = answers.get(req.attribute)
             status, _ = evaluate(Operator.is_true, None, own)
             if status == RequirementStatus.unknown:

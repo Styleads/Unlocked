@@ -49,7 +49,7 @@ _SPECS = [
         effort=0,
         question="Which state do you live in?",
         why_template="Most schemes are run by a state or apply only to its residents.",
-        aliases=["state of residence", "resident state"],
+        aliases=["state of residence", "resident state", "state"],
     ),
     AttributeSpec(
         id="district",
@@ -209,7 +209,18 @@ _SPECS = [
         question="Are you legally domiciled in Karnataka (not just currently living there)?",
         keep_wording=True,
         why_template="Many state schemes require Karnataka domicile, not just current residence.",
-        aliases=["domicile", "karnataka domicile", "native of karnataka", "domicile of karnataka"],
+        aliases=[
+            "domicile",
+            "karnataka domicile",
+            "native of karnataka",
+            "domicile of karnataka",
+            "karnataka",
+            "in karnataka",
+            "resident in karnataka",
+            "karnataka resident",
+            "resident of karnataka",
+            "permanent resident of karnataka",
+        ],
     ),
     AttributeSpec(
         id="receives_other_scholarship",
@@ -289,6 +300,28 @@ def resolve_attribute(name: str) -> Optional[str]:
     """Exact match on id, label or alias after normalization. No fuzzy guessing:
     a miss means the requirement needs clarification."""
     return _ALIAS_INDEX.get(normalize_text(name))
+
+
+# Canonical Karnataka districts catalog
+KARNATAKA_DISTRICTS = {
+    "bagalkot", "ballari", "bellary", "belagavi", "belgaum", "bengaluru",
+    "bengaluru urban", "bengaluru rural", "bangalore", "bidar",
+    "chamarajanagar", "chikkaballapur", "chikkamagaluru", "chikmagalur",
+    "chitradurga", "dakshina kannada", "mangalore", "mangaluru", "davanagere",
+    "dharwad", "gadag", "hassan", "haveri", "kalaburagi", "gulbarga",
+    "kodagu", "coorg", "kolar", "koppal", "mandya", "mysuru", "mysore",
+    "raichur", "ramanagara", "shivamogga", "shimoga", "tumakuru", "tumkur",
+    "udupi", "uttara kannada", "karwar", "vijayapura", "bijapur",
+    "vijayanagara", "yadgir",
+}
+
+
+def is_karnataka_district(district_name: Optional[str]) -> bool:
+    """Return True if district belongs to Karnataka."""
+    if not district_name or not isinstance(district_name, str):
+        return False
+    norm = normalize_text(district_name)
+    return norm in KARNATAKA_DISTRICTS or any(d in norm for d in KARNATAKA_DISTRICTS)
 
 
 # --- a scheme's own conditions -----------------------------------------------
