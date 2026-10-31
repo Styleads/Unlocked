@@ -1,0 +1,112 @@
+{
+  "category": "students",
+  "description": "Government schemes and scholarships for students in Karnataka",
+  "schemes": [
+    {
+      "id": "post_matric_scholarship_ssp",
+      "name": "State Scholarship Portal (SSP) Post-Matric Scholarship",
+      "summary": "Financial assistance for post-matriculation studies to eligible students of Karnataka.",
+      "government_level": "state",
+      "target_group": ["students"],
+      "deadline": "2026-11-30",
+      "deadline_source_url": "https://ssp.postmatric.karnataka.gov.in",
+      "requirements": [
+        {
+          "id": "ssp_req_domicile",
+          "attribute": "domicile_karnataka",
+          "criterion": "The applicant must be a resident of Karnataka.",
+          "operator": "is_true",
+          "value": null,
+          "status": "verified",
+          "source_url": "https://ssp.postmatric.karnataka.gov.in/guidelines",
+          "evidence": "Candidate must be a domicile of Karnataka."
+        },
+        {
+          "id": "ssp_req_income",
+          "attribute": "annual_family_income",
+          "criterion": "Annual family income must not exceed Rs 2,50,000.",
+          "operator": "lte",
+          "value": 250000,
+          "status": "verified",
+          "source_url": "https://ssp.postmatric.karnataka.gov.in/guidelines",
+          "evidence": "Total family annual income from all sources should not exceed Rs 2.50 Lakhs."
+        }
+      ],
+      "documents": [
+        {
+          "name": "Income Certificate",
+          "source_url": "https://ssp.postmatric.karnataka.gov.in/documents",
+          "evidence": "Valid RD-numbered Income Certificate issued by Revenue Department"
+        },
+        {
+          "name": "Caste Certificate",
+          "source_url": "https://ssp.postmatric.karnataka.gov.in/documents",
+          "evidence": "Valid RD-numbered Caste Certificate issued by Revenue Department",
+          "dependencies": [
+            {
+              "depends_on": "Domicile Certificate",
+              "source_url": "https://nadakacheri.karnataka.gov.in"
+            }
+          ]
+        },
+        {
+          "name": "Admission Proof",
+          "source_url": "https://ssp.postmatric.karnataka.gov.in/documents",
+          "evidence": "College admission letter or registration number"
+        },
+        {
+          "name": "Bank Passbook",
+          "source_url": "https://ssp.postmatric.karnataka.gov.in/documents",
+          "evidence": "Aadhaar seeded bank account passbook"
+        }
+      ],
+      "application_url": "https://ssp.postmatric.karnataka.gov.in",
+      "official_sources": ["https://ssp.postmatric.karnataka.gov.in/guidelines"],
+      "verification_status": "verified",
+      "source_type": "official"
+    },
+    {
+      "id": "vidyasiri_food_and_accommodation",
+      "name": "Vidyasiri (Food and Accommodation Scheme)",
+      "summary": "Monthly stipend for SC/ST/OBC/minority students residing outside government hostels.",
+      "government_level": "state",
+      "target_group": ["students"],
+      "deadline": "2026-12-15",
+      "deadline_source_url": "https://bcwd.karnataka.gov.in",
+      "requirements": [
+        {
+          "id": "vidyasiri_req_income",
+          "attribute": "annual_family_income",
+          "criterion": "Annual family income must not exceed Rs 2,00,000.",
+          "operator": "lte",
+          "value": 200000,
+          "status": "verified",
+          "source_url": "https://bcwd.karnataka.gov.in/guidelines",
+          "evidence": "Annual income threshold Rs 2 Lakhs for backward classes."
+        }
+      ],
+      "documents": [
+        {
+          "name": "Income Certificate",
+          "source_url": "https://bcwd.karnataka.gov.in/documents",
+          "evidence": "Income Certificate from Nadakacheri"
+        },
+        {
+          "name": "Bank Passbook",
+          "source_url": "https://bcwd.karnataka.gov.in/documents",
+          "evidence": "Bank account copy for direct benefit transfer"
+        },
+        {
+          "name": "Bonafide Certificate",
+          "source_url": "https://bcwd.karnataka.gov.in/documents",
+          "evidence": "Study certificate issued by college head"
+        }
+      ],
+      "application_url": "https://bcwd.karnataka.gov.in",
+      "official_sources": ["https://bcwd.karnataka.gov.in/guidelines"],
+      "verification_status": "verified",
+      "source_type": "official"
+    }
+  ]
+}
+
