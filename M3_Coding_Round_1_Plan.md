@@ -467,15 +467,15 @@ When the user toggles a document (e.g. from `needed` to `have` or `obtained`):
 
 ## 15. Definition of Done (Coding Round 1)
 
-- [ ] `M3_Coding_Round_1_Plan.md` reflects actual codebases from Member 1 and Member 2.
-- [ ] Dependencies consolidated and installable via `pip install -r requirements.txt`.
-- [ ] M1-to-M2 Adapter tested and operational.
-- [ ] SQLite database initializes with table schema including question history and document states.
-- [ ] FastAPI exposes all planned REST endpoints with Pydantic request/response validation.
-- [ ] Context answers are seeded into initial session state.
-- [ ] Discovery runs M1 search/fallback $\rightarrow$ M2 normalization $\rightarrow$ M2 assessment.
-- [ ] Question retrieval and answer submission flow recalculates assessments.
-- [ ] Document action plan DAG computes topologically sorted checklist with shared prerequisites.
-- [ ] Session restore proves full SQLite persistence across server restarts.
-- [ ] All 282 Member 2 tests and Member 1 tests pass.
+- [x] `M3_Coding_Round_1_Plan.md` reflects actual codebases from Member 1 and Member 2.
+- [x] Dependencies consolidated and installable via `pip install -r requirements.txt`.
+- [x] M1-to-M2 Adapter tested and operational.
+- [x] SQLite database initializes with table schema including question history and document states.
+- [x] FastAPI exposes all planned REST endpoints with Pydantic request/response validation.
+- [x] Context answers are seeded into initial session state.
+- [x] Discovery runs M1 search/fallback $\rightarrow$ M2 normalization $\rightarrow$ M2 assessment.
+- [x] Question retrieval and answer submission flow recalculates assessments.
+- [x] Document action plan DAG computes topologically sorted checklist with shared prerequisites.
+- [x] Session restore proves full SQLite persistence across server restarts.
+- [x] All 282 Member 2 tests and Member 1 tests pass.
 - [ ] 90-second Review Round 1 demo script runs smoothly.

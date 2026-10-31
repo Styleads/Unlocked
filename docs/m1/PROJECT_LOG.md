@@ -257,4 +257,12 @@ uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
 5. **Interactive Script Cleanup**: Renamed `test_gemini.py` to `demo_gemini_interactive.py` to prevent pytest freezing on user inputs during test discovery.
 6. **Documentation Relocation**: Organized root audit documents into `docs/m1/` (`AUDIT_REPORT.md`, `DECISIONS.md`, `HANDOFF_MEMBER3.md`, `PROJECT_LOG.md`) and removed obsolete `Plan.md`.
 
+---
+
+## Session 7 — Central Orchestrator & Kannada Pipeline Verification
+1. **Orchestrator Integration**: Member 3's `api/orchestrator.py` wired in-process calls to `discover_schemes()` and `translate_schemes_to_kannada()`.
+2. **End-to-End Validation**: Verified that English and authentic Kannada translated schemes flow through `adapt_m1_to_m2_schemes()` into Member 2's `normalize_requirements()`, `assess_schemes()`, and `generate_consolidated_questions()`.
+3. **Automated Testing**: Validated in `tests/test_orchestrator.py` with 100% pass across bilingual discovery runs.
+
+
 

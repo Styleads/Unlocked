@@ -35,3 +35,9 @@ Document edge cases in requirement matching, cyclic dependencies, and assessment
 * **Fix / Workaround:** `AttributeSpec.keep_wording`; such questions are never sent to the LLM.
 * **Verification:** Unit test plus a live run shows the registry wording.
 
+## [2026-10-31] Bug: Normalizer tests failing in unified environment without optional Anthropic package
+* **Symptom:** 5 tests in `tests/member2/test_normalize.py` failed with `ModuleNotFoundError: No module named 'anthropic'`.
+* **Cause:** `anthropic` was in `requirements-member2.txt` but not in unified `requirements.txt`.
+* **Fix / Workaround:** Consolidated `anthropic>=0.40.0` into the unified `requirements.txt`.
+* **Verification:** `python -m pytest tests/member2 -q` -> 282 passed (100%).
+

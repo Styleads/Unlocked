@@ -297,7 +297,10 @@ def _apply_kannada_fallback_overlay(scheme: SchemeRecord) -> SchemeRecord:
         "benefits": overlay.get("benefits", scheme.benefits),
         "eligibility_criteria": new_criteria,
         "required_documents": overlay.get("required_documents", scheme.required_documents),
-        "application_process": overlay.get("application_process", scheme.application_process),
+        "application_process": overlay.get(
+            "application_process",
+            getattr(scheme, "application_process", getattr(scheme, "application_steps", [""])[0] if getattr(scheme, "application_steps", None) else "")
+        ),
         "department": overlay.get("department", scheme.department),
         "missing_information": overlay.get("missing_information", scheme.missing_information),
         # Strict preservation of original invariant fields

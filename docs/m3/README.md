@@ -14,31 +14,31 @@
 ## 1. Responsibilities & Goals
 
 ### Backend & Persistence (P0)
-- [ ] Initialize Python repository structure, poetry/uv or requirements.txt, and FastAPI app.
-- [ ] Build health check endpoint (`GET /api/health`).
-- [ ] Configure SQLite database (WAL mode, async support via SQLAlchemy/aiosqlite or standard sqlite3).
-- [ ] Define session lifecycle:
+- [x] Initialize Python repository structure, poetry/uv or requirements.txt, virtualenv, and base packages (Phase 0).
+- [x] Build health check endpoint (`GET /api/health` and `GET /health`, Phase 4).
+- [x] Configure SQLite database (WAL mode, async support via aiosqlite, Phase 2).
+- [x] Define session lifecycle & persistence (Phase 2):
   - Generate UUID `session_id`.
   - Persist user context, discovery scope, candidate schemes.
   - Persist questions, answers, skipped states.
   - Persist scheme assessments and generated plans.
   - Support session reset / deletion (`DELETE /api/sessions/{session_id}`).
-- [ ] Ensure privacy: no storage of Aadhaar numbers, biometric scans, or passwords.
+- [x] Ensure privacy: no storage of Aadhaar numbers, biometric scans, or passwords.
 
 ### Central Orchestration (P0)
-- [ ] Coordinate Agent 1 (Discovery), Agent 2 (Eligibility & Verification), and Agent 3 (Planning) in deterministic sequence.
-- [ ] Provide mock responses to Member 4 immediately so frontend development isn't blocked.
-- [ ] Expose stable REST API endpoints:
+- [x] Coordinate Agent 1 (Discovery), Agent 2 (Eligibility & Verification), and Agent 3 (Planning) in deterministic sequence (Phase 3).
+- [x] Provide mock/live responses to Member 4 immediately so frontend development isn't blocked.
+- [x] Expose stable REST API endpoints (Phase 4):
   - `POST /api/sessions`
   - `GET /api/sessions/{session_id}`
-  - `POST /api/discover`
-  - `GET /api/schemes`
-  - `GET /api/schemes/{scheme_id}`
-  - `GET /api/questions`
-  - `POST /api/answers`
-  - `GET /api/plan`
-  - `POST /api/checklist/{item_id}`
-  - `POST /api/actions` (P1)
+  - `DELETE /api/sessions/{session_id}`
+  - `POST /api/sessions/{session_id}/discover`
+  - `GET /api/sessions/{session_id}/schemes`
+  - `GET /api/sessions/{session_id}/schemes/{scheme_id}`
+  - `GET /api/sessions/{session_id}/questions`
+  - `POST /api/sessions/{session_id}/answers`
+  - `GET /api/sessions/{session_id}/plan`
+  - `POST /api/sessions/{session_id}/checklist/{item_id}`
 
 > [!IMPORTANT]
 > **Orchestrator Rules for Calling Member 2's Modules:**

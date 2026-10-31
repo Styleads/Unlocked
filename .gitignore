@@ -39,12 +39,16 @@ nosetests.xml
 coverage.xml
 *.cover
 
-# 4. User Personal Information & Local Profiles (PII)
+# 4. User Personal Information & Local Profiles (PII) & Database
 user_profile.json
 *user_profile*.json
 profiles/
 user_data/
 *.profile.json
+data/
+*.db
+*.sqlite
+*.sqlite3
 
 # 5. IDEs & Editors
 .vscode/
