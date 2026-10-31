@@ -14,7 +14,8 @@ python -m agent4.demo --live         # same, wording by Gemini/Claude
 
 ```python
 from agent4 import (build_email_draft, build_calendar_artifact, update_progress,
-                    analyse_rejection, email_request_for_step, facts_from_scheme)
+                    analyse_rejection, email_request_for_step, facts_from_scheme,
+                    clarification_request)
 from member2 import default_client          # any object with complete_json(system, user) -> str
 
 llm = default_client()                      # optional; None gives the deterministic template
@@ -25,6 +26,11 @@ artifact = build_email_draft({"scheme": scheme, "purpose": "clarification",
                               # verified rules' exact quotes + links; optional topic filter
                               "facts": facts_from_scheme(scheme, attributes=["annual_family_income"])},
                              llm=llm)
+
+# Clarification email built from what is actually unclear (uncertain rules, pages that
+# disagree, missing documents/process). None -> nothing to ask; offer to apply instead.
+request = clarification_request(scheme, user_details={"Name": "..."})
+artifact = build_email_draft(request, llm=llm) if request else None
 
 # POST /api/actions {type: "calendar_ics"}  ->  if artifact.status == "needs_input", ask for artifact.missing_fields
 artifact = build_calendar_artifact({"scheme": scheme, "kind": "deadline"})
