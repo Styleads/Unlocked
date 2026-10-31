@@ -59,6 +59,9 @@ Rules:
 {{"structured": [{{"id": "<given id>", "attribute": "...", "operator": "...", "value": ...}}],
   "extracted": [{{"attribute": "...", "operator": "...", "value": ..., "criterion": "...", "evidence": "..."}}]}}
 - "structured" answers each item in "criteria_to_structure" by its id.
+- If a criterion states several conditions (e.g. income AND course AND college type),
+  return one "structured" item per condition, all with the same id. Use attribute
+  "unmapped" with a short name in "value" for a condition no attribute fits; never drop it.
 - "extracted" lists rules found in "eligibility_text" (empty if none is given).
 """
 
@@ -118,6 +121,58 @@ def _numbers_in_value(value: Any) -> list[float]:
     return out
 
 
+# Words an official text may use for a select option. A structured select value
+# counts as stated only if the option or one of these appears in the evidence.
+_OPTION_WORDS: dict[str, tuple[str, ...]] = {
+    "Female": ("female", "girl", "girls", "women", "woman"),
+    "Male": ("male", "boy", "boys", "men"),
+    "SC": ("sc", "scheduled caste", "scheduled castes"),
+    "ST": ("st", "scheduled tribe", "scheduled tribes"),
+    "OBC": ("obc", "backward class", "backward classes", "other backward"),
+    "General": ("general category", "general merit"),
+    "Undergraduate": ("undergraduate", "ug", "degree", "b.a", "b.sc", "b.com", "b.e", "bachelor"),
+    "Postgraduate": ("postgraduate", "post graduate", "post-graduate", "pg", "master", "m.a", "m.sc", "m.com"),
+    "Class 10": ("class 10", "sslc", "10th"),
+    "Class 12": ("class 12", "puc", "pre-university", "12th", "ii puc"),
+    "Government": ("government",),
+    "Aided": ("aided",),
+    "Private": ("private", "unaided"),
+    "Karnataka": ("karnataka",),
+    "Rural": ("rural", "village"),
+    "Urban": ("urban", "city", "town"),
+    "BPL": ("bpl", "below poverty line"),
+    "APL": ("apl", "above poverty line"),
+}
+
+
+def _select_values_supported(value: Any, evidence: Optional[str]) -> bool:
+    """Every select value must be stated in the evidence, as the option or a
+    known synonym, as whole words. Stops "post-matric" becoming "Postgraduate"."""
+    text = " " + re.sub(r"[^a-z0-9.]+", " ", (evidence or "").casefold()) + " "
+    for v in value if isinstance(value, list) else [value]:
+        words = _OPTION_WORDS.get(str(v), (str(v).casefold(),))
+        if not any(f" {re.sub(r'[^a-z0-9.]+', ' ', w).strip()} " in text for w in words):
+            return False
+    return True
+
+
+def _unused_thresholds(parts: list[Requirement], evidence: Optional[str]) -> bool:
+    """True if the evidence states a number of similar size that none of the
+    rules built from it uses, e.g. "Rs 2.5 lakh for Category-I and Rs 1 lakh for
+    Category 2A". One comparison can't express such a conditional limit, so the
+    rule must not decide anything. Magnitude window 0.25x-4x skips list numbers
+    ("4.") and category codes ("2A") next to a threshold like 25 or 250000."""
+    used = [n for p in parts if p.operator is not None for n in _numbers_in_value(p.value)]
+    if not used:
+        return False
+    for n in _numbers_in_text(evidence or ""):
+        if any(abs(n - u) < 1e-6 for u in used):
+            continue
+        if any(0.25 <= n / u <= 4 for u in used if u):
+            return True
+    return False
+
+
 def _numbers_supported(value: Any, evidence: Optional[str]) -> bool:
     """Every number the model produced must be stated in the evidence. Guards
     against a real quote paired with a misread threshold."""
@@ -164,6 +219,9 @@ def _deterministic(scheme: SchemeRecord) -> SchemeRecord:
     n = 0
     for req in scheme.requirements:
         key = _squash(req.criterion).casefold()
+        if getattr(req, LLM_MARK, None):
+            # Conditions split from one criterion share its text; they differ by rule.
+            key += "|" + json.dumps([req.attribute, req.operator, req.value], sort_keys=True, default=str)
         if key in seen:
             continue  # same rule listed twice; keeps normalization idempotent
         seen.add(key)
@@ -241,7 +299,11 @@ def _llm_pass(scheme: SchemeRecord, llm: LLMClient) -> SchemeRecord:
         return scheme.model_copy(update={"uncertainties": uncertainties})
 
     by_id = {r.id: r for r in targets}
-    structured: dict[str, Requirement] = {}
+    # One criterion may hold several conditions; each becomes its own rule so
+    # none is silently dropped (a dropped condition could yield a false
+    # "Potential match"). Unmappable parts stay as needs_clarification.
+    structured: dict[str, list[Requirement]] = {}
+    all_ids = {r.id for r in scheme.requirements}
     for item in data.get("structured") or []:
         try:
             s = _Structured.model_validate(item)
@@ -250,13 +312,38 @@ def _llm_pass(scheme: SchemeRecord, llm: LLMClient) -> SchemeRecord:
         req = by_id.get(s.id)
         if req is None:
             continue
-        attr, op, value = _canonical_rule(s.attribute, s.operator, s.value, _slug(req.criterion))
+        parts = structured.setdefault(req.id, [])
+        unmapped_name = s.value if isinstance(s.value, str) and (s.attribute or "").strip().lower() == "unmapped" else None
+        attr, op, value = _canonical_rule(unmapped_name or s.attribute, s.operator, s.value,
+                                          f"{_slug(req.criterion)}_{len(parts) + 1}" if parts else _slug(req.criterion))
         status = req.status
-        if status == RequirementVerification.verified and not _numbers_supported(value, req.evidence or req.criterion):
-            status = RequirementVerification.uncertain
-        structured[req.id] = req.model_copy(update={"attribute": attr, "operator": op, "value": value, "status": status, LLM_MARK: "structured"})
+        # Only a comparable rule carries a threshold; an unmapped part's value is a
+        # name ("meritorious_puc2_list") whose digits are not a threshold.
+        if status == RequirementVerification.verified and op is not None:
+            evidence = req.evidence or req.criterion
+            is_select = is_canonical(attr) and ATTRIBUTES[attr].input_type == InputType.select
+            if not _numbers_supported(value, evidence) or (is_select and not _select_values_supported(value, evidence)):
+                status = RequirementVerification.uncertain
+        new_id = req.id
+        if parts:  # second and later conditions get their own stable id
+            k = len(parts) + 1
+            while f"{req.id}_{k}" in all_ids:
+                k += 1
+            new_id = f"{req.id}_{k}"
+            all_ids.add(new_id)
+        parts.append(req.model_copy(update={"id": new_id, "attribute": attr, "operator": op, "value": value,
+                                            "status": status, LLM_MARK: "structured"}))
 
-    reqs = [structured.get(r.id, r) for r in scheme.requirements]
+    for rid, parts in structured.items():
+        if _unused_thresholds(parts, by_id[rid].evidence or by_id[rid].criterion):
+            structured[rid] = [
+                p.model_copy(update={"status": RequirementVerification.uncertain})
+                if p.status == RequirementVerification.verified and p.operator is not None else p
+                for p in parts
+            ]
+            _add_uncertainty(uncertainties, f"A rule has different limits for different groups and needs checking: {by_id[rid].criterion}")
+
+    reqs = [part for r in scheme.requirements for part in structured.get(r.id, [r])]
 
     if pending_text:
         source = scheme.official_sources[0] if scheme.official_sources else None
@@ -282,7 +369,10 @@ def _llm_pass(scheme: SchemeRecord, llm: LLMClient) -> SchemeRecord:
             attr, op, value = _canonical_rule(e.attribute, e.operator, e.value, _slug(criterion))
             if not source:
                 status = RequirementVerification.unverified
-            elif _numbers_supported(value, evidence):
+            elif _numbers_supported(value, evidence) and not (
+                is_canonical(attr) and ATTRIBUTES[attr].input_type == InputType.select
+                and op is not None and not _select_values_supported(value, evidence)
+            ):
                 status = RequirementVerification.verified
             else:
                 status = RequirementVerification.uncertain

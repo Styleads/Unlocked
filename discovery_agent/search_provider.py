@@ -43,6 +43,40 @@ OFFICIAL_DOMAINS = [
     "karnataka.gov.in",
 ]
 
+# Search snippets (~1,500 chars) rarely contain the eligibility rules or the
+# document list, so the extractor had nothing to quote. We also request the
+# page text and keep only the paragraphs that talk about rules and documents.
+# They are copied verbatim, so the extractor's quote check still works.
+RULE_KEYWORDS = (
+    "eligib", "criteria", "criterion", "who can apply", "applicant", "must",
+    "should be", "income", "age", "years", "domicile", "resident", "category",
+    "document", "certificate", "required", "proof", "marks", "percentage",
+    "hectare", "land", "student", "course", "family",
+)
+MAX_PASSAGE_CHARS = 4000
+MIN_PARAGRAPH_CHARS = 30
+
+
+def relevant_passages(raw_content, limit: int = MAX_PASSAGE_CHARS) -> str:
+    """Paragraphs of the page that mention rules or documents, verbatim, in
+    page order, up to `limit` characters."""
+    if not isinstance(raw_content, str) or not raw_content.strip():
+        return ""
+    out, size, seen = [], 0, set()
+    for para in raw_content.replace("\r", "").split("\n"):
+        para = " ".join(para.split())
+        key = para.casefold()
+        if len(para) < MIN_PARAGRAPH_CHARS or key in seen:
+            continue
+        if not any(k in key for k in RULE_KEYWORDS):
+            continue
+        if size + len(para) > limit:
+            break
+        seen.add(key)
+        out.append(para)
+        size += len(para) + 1
+    return "\n".join(out)
+
 
 def is_official_government_url(url: str) -> bool:
     """
@@ -164,6 +198,7 @@ def search_web(query: str, max_results: int = 10) -> list[dict]:
                 include_domains=OFFICIAL_DOMAINS,
                 include_domains_mode="restrict",
                 include_answer=False,
+                include_raw_content=True,
             )
 
             results = []
@@ -198,6 +233,10 @@ def search_web(query: str, max_results: int = 10) -> list[dict]:
                     title = ""
                 if not isinstance(content, str):
                     content = ""
+
+                passages = relevant_passages(item.get("raw_content"))
+                if passages and passages not in content:
+                    content = f"{content}\n{passages}".strip()
 
                 results.append({
                     "title": title,
