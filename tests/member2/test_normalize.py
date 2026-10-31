@@ -34,6 +34,26 @@ def extracted(**kw):
 
 # --- deterministic pass -------------------------------------------------------
 
+def test_agent1_income_name_resolves():
+    s = scheme([Requirement(id="r1", attribute="income", criterion="c", source_url=SRC)])
+    assert normalize_scheme(s).requirements[0].attribute == "annual_family_income"
+
+
+def test_verified_without_evidence_is_downgraded():
+    r = Requirement(id="r1", attribute="age", criterion="Age 25 or younger", operator="lte", value=25,
+                    status="verified", source_url=SRC, evidence=None)
+    assert normalize_scheme(scheme([r])).requirements[0].status == V.unverified
+
+
+def test_known_attribute_without_operator_is_structured():
+    r = Requirement(id="r1", attribute="annual_family_income", criterion=TEXT, status="verified",
+                    source_url=SRC, evidence=TEXT)
+    llm = FakeLLM({"structured": [{"id": "r1", "attribute": "annual_family_income", "operator": "lte", "value": 250000}],
+                   "extracted": []})
+    out = normalize_scheme(scheme([r]), llm).requirements[0]
+    assert [c["id"] for c in llm.payload()["criteria_to_structure"]] == ["r1"]
+    assert out.operator == Operator.lte and out.value == 250000 and out.status == V.verified
+
 def test_alias_mapped_to_canonical():
     s = scheme([Requirement(id="r1", attribute="Family Income", criterion="c", source_url=SRC)])
     assert normalize_scheme(s).requirements[0].attribute == "annual_family_income"
@@ -264,3 +284,100 @@ def test_anthropic_client_unusable_output_raises(monkeypatch, response):
     c, _ = _client(monkeypatch, response)
     with pytest.raises(LLMError):
         c.complete_json("s", "u")
+
+
+# --- compound criteria (live NSP example, fictionalised) ----------------------
+
+COMPOUND = ("Total annual family income must not exceed Rs 4.5 lakh. Students must be admitted to "
+            "regular degree programmes. Students enrolled in Distance programmes are ineligible.")
+
+
+def _compound_scheme():
+    return scheme([Requirement(id="r1", criterion=COMPOUND, status="verified", source_url=SRC, evidence=COMPOUND)])
+
+
+def _compound_llm():
+    return FakeLLM({"structured": [
+        {"id": "r1", "attribute": "annual_family_income", "operator": "lte", "value": 450000},
+        {"id": "r1", "attribute": "unmapped", "operator": None, "value": "regular degree programme"},
+        {"id": "r1", "attribute": "unmapped", "operator": None, "value": "not distance education"},
+    ], "extracted": []})
+
+
+def test_compound_criterion_keeps_every_condition():
+    reqs = normalize_scheme(_compound_scheme(), _compound_llm()).requirements
+    assert [r.id for r in reqs] == ["r1", "r1_2", "r1_3"]
+    assert reqs[0].attribute == "annual_family_income" and reqs[0].status == V.verified
+    assert reqs[1].attribute == "unmapped:regular_degree_programme" and reqs[1].operator is None
+    assert reqs[2].attribute == "unmapped:not_distance_education"
+    assert all(r.evidence == COMPOUND for r in reqs)
+
+
+def test_compound_split_is_idempotent_and_blocks_potential_match():
+    from member2 import assess_schemes
+    once = normalize_scheme(_compound_scheme(), _compound_llm())
+    twice = normalize_scheme(once, FakeLLM(RuntimeError("must not be called")))
+    assert [r.id for r in twice.requirements] == ["r1", "r1_2", "r1_3"]
+    answers = {"annual_family_income": {"attribute": "annual_family_income", "state": "answered",
+                                        "value": {"min": 100000, "max": 200000}}}
+    status = assess_schemes([twice], answers)[0].status.value
+    assert status != "potential_match"  # the two unmapped conditions keep it uncertain
+
+
+# --- conditional limits (live BCW example, fictionalised) --------------------
+
+CONDITIONAL = "4. Annual income limit is Rs. 2.50 lakh for Category-I students and Rs. 1.00 lakh for Category 2A, 3A and 3B."
+
+
+def _one_rule(evidence, structured):
+    s = scheme([Requirement(id="r1", criterion=evidence, status="verified", source_url=SRC, evidence=evidence)])
+    return normalize_scheme(s, FakeLLM({"structured": structured, "extracted": []}))
+
+
+def test_conditional_limit_is_not_verified():
+    out = _one_rule(CONDITIONAL, [{"id": "r1", "attribute": "annual_family_income", "operator": "lte", "value": 250000}])
+    assert out.requirements[0].status == V.uncertain
+    assert any("different limits" in u for u in out.uncertainties)
+
+
+def test_range_using_both_numbers_stays_verified():
+    text = "Applicants must be between 18 and 25 years of age."
+    out = _one_rule(text, [{"id": "r1", "attribute": "age", "operator": "gte", "value": 18},
+                           {"id": "r1", "attribute": "age", "operator": "lte", "value": 25}])
+    assert [r.status for r in out.requirements] == [V.verified, V.verified]
+
+
+def test_list_numbers_and_codes_do_not_trigger():
+    text = "3. Marks of at least 60 percent in Category 2A courses."
+    out = _one_rule(text, [{"id": "r1", "attribute": "previous_year_marks_percent", "operator": "gte", "value": 60}])
+    assert out.requirements[0].status == V.verified
+
+
+def test_unmapped_name_with_digits_keeps_status():
+    text = "Students must be listed in the PUC-II merit list and be meritorious."
+    out = _one_rule(text, [{"id": "r1", "attribute": "unmapped", "operator": None, "value": "meritorious_puc2_list"}])
+    assert out.requirements[0].status == V.verified
+
+
+# --- select values must be stated -----------------------------------------------
+
+def test_post_matric_is_not_postgraduate():
+    text = "Backward classes pursuing post-matric education in Government institutions are eligible."
+    out = _one_rule(text, [{"id": "r1", "attribute": "education_level", "operator": "eq", "value": "Postgraduate"},
+                           {"id": "r1", "attribute": "social_category", "operator": "in", "value": ["OBC"]},
+                           {"id": "r1", "attribute": "institution_type", "operator": "in", "value": ["Government"]}])
+    assert [r.status for r in out.requirements] == [V.uncertain, V.verified, V.verified]
+
+
+def test_synonyms_count_as_stated():
+    text = "Meritorious girl students from Scheduled Castes in undergraduate degree courses."
+    out = _one_rule(text, [{"id": "r1", "attribute": "gender", "operator": "eq", "value": "Female"},
+                           {"id": "r1", "attribute": "social_category", "operator": "in", "value": ["SC"]},
+                           {"id": "r1", "attribute": "education_level", "operator": "eq", "value": "Undergraduate"}])
+    assert all(r.status == V.verified for r in out.requirements)
+
+
+def test_unstated_extra_option_is_uncertain():
+    text = "Students belonging to backward classes are eligible."
+    out = _one_rule(text, [{"id": "r1", "attribute": "social_category", "operator": "in", "value": ["OBC", "Other"]}])
+    assert out.requirements[0].status == V.uncertain

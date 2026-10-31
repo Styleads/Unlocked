@@ -37,6 +37,7 @@ from discovery_agent.scheme_schema import (
     RelevanceLevel,
     SchemeClaim,
     SchemeCriterion,
+    SchemeDocument,
     SchemeRecord,
     SourceEvidence,
     VerificationStatus,
@@ -77,6 +78,7 @@ __all__ = [
     # Data models
     "SchemeRecord",
     "SchemeCriterion",
+    "SchemeDocument",
     "SchemeClaim",
     "SourceEvidence",
     "VerificationStatus",

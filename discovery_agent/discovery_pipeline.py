@@ -21,6 +21,8 @@ from discovery_agent.scheme_extractor import (
     deduplicate_schemes,
 )
 from discovery_agent.scheme_schema import SchemeRecord
+from discovery_agent.adapter import to_canonical_schemes
+from member2.models import SchemeRecord as CanonicalSchemeRecord
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +33,13 @@ logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-load_dotenv(PROJECT_ROOT / ".env", override=True)
+# Real environment variables win over .env (override=False).
+load_dotenv(PROJECT_ROOT / ".env", override=False)
+
+
+def gemini_api_key() -> str | None:
+    """GOOGLE_API_KEY (Agent 1's name) or GEMINI_API_KEY (member2's name)."""
+    return os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
 
 MODEL = "gemini-flash-lite-latest"
 
@@ -195,7 +203,7 @@ def deduplicate_results(results: list[dict]) -> list[dict]:
 
 def load_fallback_schemes(
     user_context: dict
-) -> list[SchemeRecord]:
+) -> list[CanonicalSchemeRecord]:
     """
     Load manually verified fallback schemes when live
     discovery fails or returns no results.
@@ -238,9 +246,12 @@ async def discover_schemes(
     user_context: dict,
     search_scope: str = "guided",
     enable_fallback: bool = False,
-) -> list[SchemeRecord]:
+) -> list[CanonicalSchemeRecord]:
     """
     Discover government benefit schemes for a user.
+
+    Every path returns canonical member2 SchemeRecords (plan.md §5.1),
+    converted by discovery_agent.adapter.
 
     This is the main callable interface for the discovery agent.
     It searches official government sources, extracts scheme
@@ -268,7 +279,8 @@ async def discover_schemes(
         search_scope
     )
 
-    logger.info("Search queries: %s", queries)
+    # Queries contain the user's occupation and district: log the count only.
+    logger.info("Running %d search queries.", len(queries))
 
     all_results: list[dict] = []
 
@@ -280,16 +292,10 @@ async def discover_schemes(
                 query,
                 10
             )
-            logger.info(
-                "Search returned %d results for: %s",
-                len(results), query[:60]
-            )
+            logger.info("Search returned %d results.", len(results))
             return results
         except Exception as error:
-            logger.warning(
-                "Search failed for '%s': %s",
-                query[:60], error
-            )
+            logger.warning("A search query failed: %s", type(error).__name__)
             return []
 
     search_tasks = [_run_search(q) for q in queries]
@@ -329,11 +335,14 @@ async def discover_schemes(
         return []
 
     # Check Gemini API configuration.
-    api_key = os.getenv("GOOGLE_API_KEY")
+    api_key = gemini_api_key()
 
     if not api_key:
+        if should_fallback:
+            logger.warning("No Gemini API key set; using fallback schemes.")
+            return load_fallback_schemes(user_context)
         raise ValueError(
-            "GOOGLE_API_KEY not found in the .env file."
+            "GOOGLE_API_KEY (or GEMINI_API_KEY) is not set."
         )
 
     client = genai.Client(api_key=api_key)
@@ -372,7 +381,9 @@ async def discover_schemes(
                     "Fallback loading failed: %s", error
                 )
 
-        return schemes
+        # Live records use Agent 1's schema; convert so every path returns
+        # the same canonical type (fallbacks are already converted).
+        return to_canonical_schemes(schemes)
 
     finally:
         client.close()

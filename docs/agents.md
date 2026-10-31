@@ -452,61 +452,57 @@ plan = build_action_plan(
 
 ## 5. Agent 4: Action & Follow-Through Agent (P1)
 
-* **Owner:** Member 1 (Research & Agentic Workflow Engineer)
-* **Priority:** P1 (Execute after P0 vertical slice is working)
-* **Guardrail:** Generates **user-reviewed artifacts only**. Unlocked never sends emails or calls application APIs automatically.
+* **Package:** `agent4/` (tests in `tests/agent4/`). Built by Member 2; plan.md originally assigned it to Member 1.
+* **Priority:** P1 (wire up after the P0 flow works). Member 3's Round 1 plan has no `/api/actions` route yet.
+* **Guardrail:** Generates **user-reviewed artifacts only**. Unlocked never sends emails, submits applications or calls application APIs.
+* **Independence:** pure Python, no imports from `member2` or `discovery_agent`. The LLM is optional: any object with `complete_json(system, user) -> str`, e.g. `member2.default_client()`. Without one, deterministic templates are used. Failures never raise.
+* **Full usage:** `agent4/README.md`; design choices: `agent4/DECISIONS.md`.
 
-### 5.1 Pydantic Data Contracts
+### 5.1 Public functions
+
+| Function | Input | Output |
+|---|---|---|
+| `build_email_draft(request, *, llm=None)` | `EmailRequest {scheme, purpose, question, user_details, facts}` | `ActionArtifact` (`email_draft`) |
+| `build_calendar_artifact(request, *, now=None)` | `CalendarRequest {scheme, kind: deadline\|appointment, event_date, date_confirmed_by_user, date_source_url, start_time, end_time, location}` | `ActionArtifact` (`calendar_ics`), or `status: needs_input` with `missing_fields` |
+| `update_progress(progress, scheme_id, updates, *, now=None)` | saved `ApplicationProgress` (or `None`) + `[{field, state, simulated}]` | `ProgressResult {progress, follow_ups, warnings, summary}` |
+| `analyse_rejection(scheme, notice_text, guidance, *, llm=None, simulated=False)` | user's notice text + official guidance passages `[{text, source_url}]` | `RejectionAnalysis {reason_quote, next_steps, supported, ...}` |
+| `facts_from_scheme(scheme, *, attributes=None, limit=5)` | a scheme record | `list[SourcedFact]`: verified rules' exact quotes + links, de-duplicated, for `EmailRequest.facts` |
+| `email_request_for_step(scheme, step, question, user_details)` | a sourced `NextStep` (or `None`) | `EmailRequest` for a correction / appeal / clarification email |
+
+`scheme` may be a canonical `member2.models.SchemeRecord`, its dict, or any object/dict with `id` and `name`. Agent 4 reads `name`, `department`, `application_url`, `official_sources`, `deadline` + `deadline_source_url`, and optionally `contact_email` / `contact_phone` with their `*_source_url` (not produced by Agent 1 yet).
+
+### 5.2 Pydantic data contract
 
 ```python
-from enum import Enum
-from pydantic import BaseModel, Field
-
 class ActionType(str, Enum):
-    EMAIL_DRAFT = "email_draft"
-    CALENDAR_ICS = "calendar_ics"
-    REJECTION_ASSIST = "rejection_assist"
+    email_draft = "email_draft"
+    calendar_ics = "calendar_ics"
+    progress_update = "progress_update"
+    rejection_assist = "rejection_assist"
 
 class ActionArtifact(BaseModel):
     action_type: ActionType
+    status: ArtifactStatus = "ready"            # "ready" | "needs_input"
     title: str
-    body_content: str  # Markdown email text, or iCalendar RFC 5545 string
-    target_destination: Optional[str] = None  # Official email address if verified
+    body_content: str = ""                      # email text, or RFC 5545 calendar
+    subject: Optional[str] = None
+    target_destination: Optional[str] = None    # only a *sourced* official address
     instructions: str
     user_review_confirmed: bool = False
+    filename: Optional[str] = None              # e.g. "<scheme>-deadline-2026-12-15.ics"
+    mime_type: Optional[str] = None             # "text/plain" | "text/calendar"
+    missing_fields: list[str] = []              # ask the user for these; never guessed
+    source_urls: list[str] = []
+    warnings: list[str] = []
+    generated_by: str = "template"              # "template" | "llm"
 ```
 
-### 5.2 System Prompt: Inquiry & RTI Email Generator
+### 5.3 Guarantees (enforced in Python, not by prompt)
 
-```text
-You are the Follow-Through Action Agent for Unlocked.
-Your job is to draft a formal, polite, source-grounded email inquiry or clarification letter for the citizen to review, copy, and send themselves.
-
-RULES:
-1. ONLY include user details that the user has explicitly verified.
-2. DO NOT fabricate official department contact emails. If an official email is known in the scheme record, provide it; otherwise, leave a placeholder: "[Insert Department Helpdesk Email]".
-3. Frame the tone as constructive, courteous civic correspondence referencing specific Karnataka scheme government orders or portal guidelines.
-```
-
-### 5.3 RFC 5545 iCalendar Generator (.ics)
-
-```python
-def generate_ics_event(scheme_name: str, deadline_date_iso: str, portal_url: str) -> str:
-    """Generates standard iCalendar VEVENT string for deadline reminder."""
-    clean_uid = f"{scheme_name.lower().replace(' ', '_')}_{deadline_date_iso}"
-    return f"""BEGIN:VCALENDAR
-VERSION:2.0
-PRODID:-//Unlocked//Karnataka Benefits Assistant//EN
-BEGIN:VEVENT
-UID:{clean_uid}@unlocked.local
-DTSTAMP:{deadline_date_iso.replace('-', '')}T090000Z
-DTSTART:{deadline_date_iso.replace('-', '')}T090000Z
-SUMMARY:Application Deadline: {scheme_name}
-DESCRIPTION:Reminder to submit your application on the official portal: {portal_url}. Ensure all prerequisite documents are uploaded.
-STATUS:CONFIRMED
-END:VEVENT
-END:VCALENDAR"""
-```
+* **Email:** any email address, link or phone number not from a sourced field (or the user's own question) becomes a `[placeholder]`. An LLM draft containing any number not found in the sources (an invented date, amount or reference number) is discarded and the template is used. The user's details are `{{tokens}}` that the LLM never sees.
+* **Calendar:** RFC 5545 (CRLF, line folding, escaping, stable UID). Deadlines are all-day events; appointments are timed in Asia/Kolkata with a VTIMEZONE. A date is used only if the user confirmed it or it has a source; otherwise `needs_input`. Replaces the earlier `generate_ics_event` sketch (DTSTAMP equal to the deadline, deadlines at 09:00 UTC, no escaping).
+* **Progress:** `submitted`, `decision`, `benefit_received` and `appointment_attended` are independent facts; none is inferred from another. Gaps become follow-up questions; contradictions are kept and flagged.
+* **Rejection:** the notice is redacted (ID numbers, phones, emails) before the LLM sees it. A next step is kept only with a verbatim quote from a supplied guidance passage and its URL; otherwise `supported: false` and a clarification email is offered.
 
 ---
 

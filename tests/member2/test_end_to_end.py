@@ -14,7 +14,7 @@ from member2 import (
     run_pipeline,
 )
 
-from conftest import load_schemes
+from fakes import load_schemes
 
 
 def statuses(assessments):

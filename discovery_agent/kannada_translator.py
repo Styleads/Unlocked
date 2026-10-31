@@ -23,6 +23,16 @@ from discovery_agent.scheme_schema import (
 
 logger = logging.getLogger(__name__)
 
+
+def _get(obj: Any, key: str) -> Any:
+    """Field access for both Agent 1 models and the plain dicts adapted records carry."""
+    return obj.get(key) if isinstance(obj, dict) else getattr(obj, key, None)
+
+
+def _with(obj: Any, update: dict) -> Any:
+    return {**obj, **update} if isinstance(obj, dict) else obj.model_copy(update=update)
+
+
 TranslationStatus = Literal["complete", "partial", "failed"]
 ResponseLanguage = Literal["kn", "en"]
 
@@ -273,33 +283,26 @@ def _apply_kannada_fallback_overlay(scheme: SchemeRecord) -> SchemeRecord:
 
     new_criteria = []
     translated_crit_descs = overlay.get("eligibility_criteria", [])
-    for idx, crit in enumerate(scheme.eligibility_criteria):
-        desc = (
-            translated_crit_descs[idx]
-            if idx < len(translated_crit_descs)
-            else crit.description
-        )
-        new_criteria.append(
-            crit.model_copy(
-                update={
-                    "description": desc,
-                    # Ensure verification status and source url are strictly preserved
-                    "source_url": crit.source_url,
-                    "verification_status": crit.verification_status,
-                }
-            )
-        )
+    # Adapted (canonical) records keep Agent 1 criteria as plain dicts.
+    for idx, crit in enumerate(getattr(scheme, "eligibility_criteria", None) or []):
+        original = crit.get("description") if isinstance(crit, dict) else crit.description
+        desc = translated_crit_descs[idx] if idx < len(translated_crit_descs) else original
+        # Only the text changes; verification status and source url are preserved.
+        new_criteria.append({**crit, "description": desc} if isinstance(crit, dict)
+                            else crit.model_copy(update={"description": desc}))
 
+    description = overlay.get("description", getattr(scheme, "description", ""))
     update_dict: dict[str, Any] = {
         "name": overlay.get("name", scheme.name),
-        "description": overlay.get("description", scheme.description),
+        "description": description,
         "target_groups": overlay.get("target_groups", scheme.target_groups),
         "benefits": overlay.get("benefits", scheme.benefits),
         "eligibility_criteria": new_criteria,
         "required_documents": overlay.get("required_documents", scheme.required_documents),
         "application_process": overlay.get(
             "application_process",
-            getattr(scheme, "application_process", getattr(scheme, "application_steps", [""])[0] if getattr(scheme, "application_steps", None) else "")
+            getattr(scheme, "application_process", None)
+            or (getattr(scheme, "application_steps", [""])[0] if getattr(scheme, "application_steps", None) else None),
         ),
         "department": overlay.get("department", scheme.department),
         "missing_information": overlay.get("missing_information", scheme.missing_information),
@@ -315,6 +318,10 @@ def _apply_kannada_fallback_overlay(scheme: SchemeRecord) -> SchemeRecord:
         "last_verified": scheme.last_verified,
     }
 
+    if "summary" in type(scheme).model_fields:
+        # Canonical record: the UI reads `summary`. Requirement criteria and
+        # evidence stay in the source language so they remain verbatim quotes.
+        update_dict["summary"] = description
     return scheme.model_copy(update=update_dict)
 
 
@@ -478,7 +485,7 @@ async def translate_schemes_to_kannada(
     try:
         if client is None:
             load_dotenv()
-            api_key = os.getenv("GOOGLE_API_KEY")
+            api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
             if not api_key:
                 logger.warning("Google API key missing; skipping live Kannada translation.")
                 warnings.append("Kannada translation service is temporarily unavailable; schemes presented in original language.")
@@ -548,17 +555,17 @@ async def translate_schemes_to_kannada(
             t_crits = t_data.get("eligibility_criteria", [])
             for c_idx, c_orig in enumerate(orig_crits):
                 if c_idx < len(t_crits) and isinstance(t_crits[c_idx], dict):
-                    desc = t_crits[c_idx].get("description") or c_orig.description
+                    desc = t_crits[c_idx].get("description") or _get(c_orig, "description")
                 else:
-                    desc = c_orig.description
+                    desc = _get(c_orig, "description")
 
                 new_criteria.append(
-                    c_orig.model_copy(
+                    _with(c_orig,
                         update={
                             "description": desc,
-                            "source_url": c_orig.source_url,
-                            "verification_status": c_orig.verification_status,  # STRICT: never upgrade
-                            "related_attribute": c_orig.related_attribute,
+                            "source_url": _get(c_orig, "source_url"),
+                            "verification_status": _get(c_orig, "verification_status"),  # STRICT: never upgrade
+                            "related_attribute": _get(c_orig, "related_attribute"),
                         }
                     )
                 )
@@ -569,22 +576,22 @@ async def translate_schemes_to_kannada(
             t_claims = t_data.get("claims", [])
             for cl_idx, cl_orig in enumerate(orig_claims):
                 if cl_idx < len(t_claims) and isinstance(t_claims[cl_idx], dict):
-                    cl_text = t_claims[cl_idx].get("claim") or cl_orig.claim
-                    v_reason = t_claims[cl_idx].get("verification_reason") or cl_orig.verification_reason
+                    cl_text = t_claims[cl_idx].get("claim") or _get(cl_orig, "claim")
+                    v_reason = t_claims[cl_idx].get("verification_reason") or _get(cl_orig, "verification_reason")
                 else:
-                    cl_text = cl_orig.claim
-                    v_reason = cl_orig.verification_reason
+                    cl_text = _get(cl_orig, "claim")
+                    v_reason = _get(cl_orig, "verification_reason")
 
                 new_claims.append(
-                    cl_orig.model_copy(
+                    _with(cl_orig,
                         update={
                             "claim": cl_text,
                             "verification_reason": v_reason,
                             # STRICT: Excerpt, URL, and status must NEVER change
-                            "supporting_excerpt": cl_orig.supporting_excerpt,
-                            "source_url": cl_orig.source_url,
-                            "verification_status": cl_orig.verification_status,
-                            "category": cl_orig.category,
+                            "supporting_excerpt": _get(cl_orig, "supporting_excerpt"),
+                            "source_url": _get(cl_orig, "source_url"),
+                            "verification_status": _get(cl_orig, "verification_status"),
+                            "category": _get(cl_orig, "category"),
                         }
                     )
                 )
@@ -622,6 +629,8 @@ async def translate_schemes_to_kannada(
                     "last_verified": orig_scheme.last_verified,
                 }
             )
+            if "summary" in type(updated).model_fields:  # canonical record: UI reads summary
+                updated = updated.model_copy(update={"summary": _get(updated, "description")})
             translated_list[orig_idx] = updated
             live_success_count += 1
 

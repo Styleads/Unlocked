@@ -75,7 +75,20 @@ class SchemeCriterion(BaseModel):
     description: str
     related_attribute: str | None = None
     source_url: str | None = None
+    # Exact sentence from source_url, checked verbatim by the extractor.
+    evidence: str | None = None
     verification_status: VerificationStatus = "unverified"
+
+
+class SchemeDocument(BaseModel):
+    """A required document with the sentence that requires it.
+
+    source_url and evidence are set only when the quote was found
+    verbatim on that page; otherwise both are None."""
+
+    name: str
+    source_url: str | None = None
+    evidence: str | None = None
 
 
 # --------------------------------------------------
@@ -103,6 +116,7 @@ class SchemeRecord(BaseModel):
     )
 
     required_documents: list[str] = Field(default_factory=list)
+    documents: list[SchemeDocument] = Field(default_factory=list)
     application_process: str | None = None
     application_url: str | None = None
     official_url: str | None = None
