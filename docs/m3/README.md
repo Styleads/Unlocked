@@ -8,6 +8,7 @@
 * **Technical Contact:** Member 3 (Team Lead)
 * **Master Architecture Plan:** [`plan.md`](file:///home/kruthik/coding/Unlocked/plan.md)
 * **Shared Contract:** [`docs/agents.md`](file:///home/kruthik/coding/Unlocked/docs/agents.md)
+* **Potential Issues & Code Review Log:** [`docs/m3/potential_issues.md`](file:///home/kruthik/coding/Unlocked/docs/m3/potential_issues.md)
 
 ---
 
