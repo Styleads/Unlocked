@@ -50,6 +50,7 @@ None open.
 ## Session log
 
 ### 2026-10-31 (later)
+- Pushed to team repo `Styleads/Unlocked`, branch `feat/agent2&agent3` (first pushed as `member2`, since deleted): code at repo root, plus docs/m2 updates (ADR-003..005, debugging log). No PR opened yet.
 - Added `check_member1.py` + tests (282 passed). Gemini key saved with `setx` on Varun's machine; live check passes with no setup.
 - Fixed domicile rephrase drift (`keep_wording`, DECISIONS #54).
 - Live check passed on Gemini after model-name fixes (404/503); default model now `gemini-flash-lite-latest`.
