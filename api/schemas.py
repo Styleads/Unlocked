@@ -462,6 +462,196 @@ class StandaloneRejectionRequest(BaseModel):
     simulated: bool = False
 
 
+# ---------------------------------------------------------------------------
+# Phase 9: Follow-Through, Notifications & Recovery Schemas
+# ---------------------------------------------------------------------------
+
+class NotificationPreferencesInput(BaseModel):
+    email: Optional[str] = None
+    email_enabled: bool = True
+    categories: Optional[dict[str, bool]] = None
+    timezone: str = "Asia/Kolkata"
+    consent_version: str = "v1"
+
+
+class NotificationPreferencesView(BaseModel):
+    session_id: str
+    email: Optional[str] = None
+    email_enabled: bool = False
+    categories: dict[str, bool] = Field(default_factory=dict)
+    consent_version: str = "v1"
+    consent_at: Optional[str] = None
+    disabled_at: Optional[str] = None
+    timezone: str = "Asia/Kolkata"
+
+
+class ActionPlanEmailPreview(BaseModel):
+    to_email: str
+    subject: str
+    body_html: str
+    body_text: str
+    schemes_included: list[str] = Field(default_factory=list)
+    checklist_tasks: list[str] = Field(default_factory=list)
+    follow_up_url: Optional[str] = None
+
+
+class ActionPlanEmailSendRequest(BaseModel):
+    to_email: Optional[str] = None
+    confirmed: bool = True
+
+
+class ActionPlanEmailSendResponse(BaseModel):
+    notification_id: str
+    status: str
+    provider: str
+    provider_message_id: Optional[str] = None
+    recipient: str
+    sent_at: Optional[str] = None
+
+
+class NotificationView(BaseModel):
+    notification_id: str
+    session_id: str
+    notification_type: str
+    channel: str = "email"
+    recipient: str
+    subject: str
+    scheduled_at_utc: Optional[str] = None
+    status: str
+    provider: str = "resend"
+    provider_message_id: Optional[str] = None
+    sent_at_utc: Optional[str] = None
+    delivered_at_utc: Optional[str] = None
+    last_error: Optional[str] = None
+    is_demo: bool = False
+    created_at: str
+
+
+class CreateAppointmentRequest(BaseModel):
+    purpose: str = Field(min_length=1, max_length=500)
+    scheduled_at_utc: Optional[str] = None
+    timezone: str = "Asia/Kolkata"
+    location: Optional[str] = None
+    application_id: Optional[str] = None
+    related_task_id: Optional[str] = None
+    remind_email: bool = True
+    notes: Optional[str] = None
+
+
+class UpdateAppointmentRequest(BaseModel):
+    scheduled_at_utc: Optional[str] = None
+    location: Optional[str] = None
+    status: Optional[str] = None
+    remind_email: bool = True
+
+
+class AppointmentOutcomeRequest(BaseModel):
+    attended: str = "yes"  # yes | rescheduled | missed | cancelled | unknown
+    outcome: Optional[str] = None  # documents_accepted | additional_documents_requested | application_submitted | pending_review | approved | rejected | return_scheduled | unknown
+    notes: Optional[str] = None
+    rescheduled_date: Optional[str] = None
+    additional_documents: list[str] = Field(default_factory=list)
+
+
+class AppointmentView(BaseModel):
+    appointment_id: str
+    session_id: str
+    application_id: Optional[str] = None
+    related_task_id: Optional[str] = None
+    purpose: str
+    scheduled_at_utc: Optional[str] = None
+    timezone: str = "Asia/Kolkata"
+    location: Optional[str] = None
+    status: str = "scheduled"
+    outcome_summary: Optional[str] = None
+    outcome_details: Optional[dict[str, Any]] = None
+    status_source: str = "user_reported"
+    follow_up_url: Optional[str] = None
+    created_at: str
+
+
+class TrackedApplicationCreateRequest(BaseModel):
+    scheme_id: str
+    status: str = "not_started"
+    status_source: str = "user_reported"
+
+
+class TrackedApplicationOutcomeRequest(BaseModel):
+    status: str  # not_started | preparing | submitted | under_review | approved | rejected | benefit_received | closed
+    status_source: str = "user_reported"  # user_reported | official_verified | demo_simulated
+    submission_date: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class TrackedApplicationView(BaseModel):
+    application_id: str
+    session_id: str
+    scheme_id: str
+    scheme_name: Optional[str] = None
+    status: str
+    status_source: str = "user_reported"
+    reported_submission_at: Optional[str] = None
+    recovery_status: Optional[str] = None
+    recovery_data: Optional[dict[str, Any]] = None
+    last_updated_at: Optional[str] = None
+    created_at: str
+
+
+class RejectionInvestigationRequest(BaseModel):
+    reason: Optional[str] = None
+    notice_text: Optional[str] = None
+    reason_category: Optional[str] = None
+    notice_date: Optional[str] = None
+    simulated: bool = False
+
+
+class RejectionRecoveryView(BaseModel):
+    scheme_id: str
+    scheme_name: str
+    reported_reason: Optional[str] = None
+    reason_quote: Optional[str] = None
+    reason_summary: Optional[str] = None
+    recovery_status: str
+    action_classification: str
+    explanation: str
+    next_actions: list[dict[str, Any]] = Field(default_factory=list)
+    email_draft: Optional[dict[str, Any]] = None
+    alternative_schemes: list[dict[str, Any]] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    simulated: bool = False
+
+
+class FollowUpPageView(BaseModel):
+    session_id: str
+    token_id: str
+    scope_type: str
+    appointment: Optional[AppointmentView] = None
+    application: Optional[TrackedApplicationView] = None
+    scheme_name: Optional[str] = None
+    expires_at: str
+
+
+class FollowUpOutcomeRequest(BaseModel):
+    attended: Optional[str] = None
+    outcome: Optional[str] = None
+    application_status: Optional[str] = None
+    notes: Optional[str] = None
+    rescheduled_date: Optional[str] = None
+    additional_documents: list[str] = Field(default_factory=list)
+
+
+class AdvanceTimeRequest(BaseModel):
+    seconds: Optional[float] = None
+    target_utc: Optional[str] = None
+
+
+class AdvanceTimeResponse(BaseModel):
+    demo_mode: bool
+    simulated_now_utc: str
+    notifications_processed: int
+    processed_notifications: list[dict[str, Any]] = Field(default_factory=list)
+
+
 __all__ = [
     # Health
     "HealthResponse",

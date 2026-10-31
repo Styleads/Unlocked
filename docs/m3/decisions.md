@@ -121,6 +121,21 @@ Document decisions regarding backend framework, SQLite schemas, session manageme
   3. Verified complete fast-forward readiness for merging `backend` into `main` and deploying.
 * **Consequences:** Backend is 100% stable, hardened, durable, and ready for full end-to-end integration testing with Member 4 (Frontend).
 
+### [2026-11-01] ADR-012: Phase 9 Email Follow-Through, Scheduling, Dynamic Links & Rejection Recovery
+* **Status:** Accepted
+* **Context:** The system needs persistent follow-through: email summaries, appointment reminder scheduling, post-appointment updates, application progress tracking, and source-grounded rejection recovery without automatic unverified appeals.
+* **Decision:**
+  1. **Notification Channel**: Integrated official Resend SDK (`resend[async]`) with async dispatch, idempotency keys, error sanitization, and demo redirection.
+  2. **Opt-in & Consent Model**: Contact details are collected only after action-plan generation (`notification_preferences`). Explicit consent and category preferences (`action_plan_summary`, `appointment_reminders`, `appointment_follow_up`, `deadline_reminders`, `pending_action_reminders`, `application_status_updates`) are enforced before any send. A one-click disable action cancels all pending reminder jobs.
+  3. **Relational SQLite Schemas**: Added 6 persistent tables (`notification_preferences`, `tracked_applications`, `appointments`, `application_events`, `notifications`, `follow_up_tokens`) with indexes and cascade deletion on `DELETE /api/sessions/{session_id}`.
+  4. **Database-Backed Due Poller**: Implemented atomic claiming of scheduled notifications (`scheduled` $\to$ `processing` $\to$ `accepted`), eliminating duplicate sends across poll cycles.
+  5. **Clock Abstraction & Demo Simulation (`api/clock.py`)**: Implemented application-level time shifting without touching the host OS clock. Strictly blocked when `DEMO_MODE=false`. In demo mode, automatically routes outgoing emails to `DEMO_EMAIL_TO` and prepends `[DEMO]` to subjects and bodies.
+  6. **Secure Follow-Up Links (`api/tokens.py`)**: Generated 256-bit cryptographically secure bearer tokens; only SHA-256 hashes are persisted in SQLite. Scoped to appointments or applications with expiration and revocation support.
+  7. **Source-Grounded Rejection Recovery (`api/recovery.py`)**: Rejection triggers investigation, not automatic appeal. Classifies actions into controlled types (`correct_document`, `submit_supplementary_documents`, `request_clarification`, `file_grievance`, `appeal_or_reconsideration`, `reapply`, `alternative_scheme`, `no_supported_remedy_found`). If no remedy is officially supported, recommends alternative welfare schemes from candidate and fallback pools.
+  8. **FastAPI Endpoints**: Mounted 17 new REST endpoints in `api/main.py` covering preferences, previews, confirmed sends, appointment lifecycles, application tracking, recovery investigations, scoped follow-up screens, and demo time advance.
+* **Consequences:** Provides durable, reliable citizen follow-through across days or weeks. 19 new integration tests added in `tests/test_notifications.py` (100% passing).
+
+
 
 
 

@@ -69,6 +69,18 @@
 >    plan = build_action_plan(schemes, user_documents=docs, assessments=assessments)
 >    ```
 
+### Follow-Through, Notifications & Recovery (P0 / Phase 9)
+- [x] Configure Resend SDK (`resend[async]`) with idempotency keys and error sanitization.
+- [x] Implement post-plan opt-in consent preferences (`POST /api/sessions/{session_id}/notifications/preferences`).
+- [x] Implement preview and confirmed send for action-plan emails (`POST .../action-plan/preview` and `send`).
+- [x] Add SQLite persistence for appointments, tracked applications, events, notifications, and follow-up tokens.
+- [x] Implement atomic due notification scheduler and poller (`api/notifications.py`).
+- [x] Build safe application clock abstraction (`api/clock.py`) and fast-forward demo endpoint (`POST /api/demo/advance-time`).
+- [x] Generate 256-bit secure follow-up bearer tokens with SHA-256 database hashing (`api/tokens.py`).
+- [x] Implement appointment outcome submission and lifecycle workflow transitions (`POST .../appointments/{id}/outcome`).
+- [x] Implement source-grounded rejection recovery and alternative scheme recommendations (`api/recovery.py`).
+- [x] Mount all 17 Section 10 REST endpoints in `api/main.py` and verify with 19 new integration tests in `tests/test_notifications.py`.
+
 ---
 
 ## 2. Checkpoints Timeline

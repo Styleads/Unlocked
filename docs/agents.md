@@ -548,6 +548,99 @@ CREATE TABLE IF NOT EXISTS sessions (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Phase 9 Follow-Through, Reminders & Tokens Schema:
+CREATE TABLE IF NOT EXISTS notification_preferences (
+    session_id TEXT PRIMARY KEY,
+    email TEXT,
+    email_enabled INTEGER NOT NULL DEFAULT 0,
+    categories_json TEXT NOT NULL DEFAULT '{}',
+    consent_version TEXT NOT NULL DEFAULT 'v1',
+    consent_at TIMESTAMP,
+    disabled_at TIMESTAMP,
+    timezone TEXT NOT NULL DEFAULT 'Asia/Kolkata',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS tracked_applications (
+    application_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    scheme_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'not_started',
+    status_source TEXT NOT NULL DEFAULT 'user_reported',
+    reported_submission_at TIMESTAMP,
+    recovery_status TEXT,
+    recovery_data_json TEXT,
+    last_updated_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS appointments (
+    appointment_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    application_id TEXT,
+    related_task_id TEXT,
+    purpose TEXT NOT NULL,
+    scheduled_at_utc TIMESTAMP,
+    timezone TEXT NOT NULL DEFAULT 'Asia/Kolkata',
+    location TEXT,
+    status TEXT NOT NULL DEFAULT 'scheduled',
+    outcome_summary TEXT,
+    outcome_details_json TEXT,
+    status_source TEXT NOT NULL DEFAULT 'user_reported',
+    follow_up_at_utc TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS application_events (
+    event_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    application_id TEXT,
+    appointment_id TEXT,
+    event_type TEXT NOT NULL,
+    old_status TEXT,
+    new_status TEXT,
+    source TEXT NOT NULL DEFAULT 'user_reported',
+    details_json TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS notifications (
+    notification_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    application_id TEXT,
+    appointment_id TEXT,
+    notification_type TEXT NOT NULL,
+    channel TEXT NOT NULL DEFAULT 'email',
+    recipient TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    body_html TEXT,
+    body_text TEXT,
+    scheduled_at_utc TIMESTAMP,
+    status TEXT NOT NULL DEFAULT 'scheduled',
+    provider TEXT NOT NULL DEFAULT 'resend',
+    provider_message_id TEXT,
+    idempotency_key TEXT UNIQUE,
+    sent_at_utc TIMESTAMP,
+    delivered_at_utc TIMESTAMP,
+    last_error TEXT,
+    is_demo INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS follow_up_tokens (
+    token_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    appointment_id TEXT,
+    application_id TEXT,
+    token_hash TEXT UNIQUE NOT NULL,
+    expires_at_utc TIMESTAMP NOT NULL,
+    revoked_at_utc TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 ```
 
 ### 6.2 Master Orchestration Endpoints (`main.py` / `orchestrator.py`)
