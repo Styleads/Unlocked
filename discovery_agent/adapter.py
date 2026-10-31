@@ -265,7 +265,6 @@ def to_canonical_scheme(raw: Any) -> CanonicalSchemeRecord:
         relevance=data.get("relevance", "additional"),
         match_reasons=data.get("match_reasons") or [],
         source_evidence=data.get("source_evidence") or [],
-        application_process=data.get("application_process") or (app_steps[0] if app_steps else ""),
     )
 
 

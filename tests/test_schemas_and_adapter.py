@@ -79,6 +79,7 @@ def test_adapter_transforms_raw_dict():
                 "value": 250000,
                 "verification_status": "verified",
                 "source_url": "https://ssp.postmatric.karnataka.gov.in",
+                "evidence": "Family income must be at most Rs. 2,50,000 per annum.",
             },
             {
                 "description": "Must be Karnataka resident",
@@ -87,9 +88,21 @@ def test_adapter_transforms_raw_dict():
                 "value": True,
                 "verification_status": "verified",
                 "source_url": "https://ssp.postmatric.karnataka.gov.in",
+                "evidence": "Applicant must be a permanent resident of Karnataka.",
             },
         ],
-        "required_documents": ["Aadhaar Card", "Income Certificate"],
+        "required_documents": [
+            {
+                "name": "Aadhaar Card",
+                "source_url": "https://ssp.postmatric.karnataka.gov.in",
+                "evidence": "Aadhaar card mandatory for identity verification.",
+            },
+            {
+                "name": "Income Certificate",
+                "source_url": "https://ssp.postmatric.karnataka.gov.in",
+                "evidence": "Income Certificate issued by Tahsildar required.",
+            },
+        ],
         "application_url": "https://ssp.postmatric.karnataka.gov.in",
         "verification_status": "verified",
     }
