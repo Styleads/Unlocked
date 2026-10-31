@@ -343,3 +343,19 @@ def test_jurisdiction_recorded_only_with_a_real_quote():
     scheme = {"id": "w", "name": "Demo Widow Pension", "documents": []}
     assert enrich_scheme(_Seq(data, {"documents": []}), "m", scheme, _search([(url, page)]))
     assert scheme["jurisdiction"] == "Madhya Pradesh"
+
+
+def test_daily_quota_is_not_retried(monkeypatch):
+    from discovery_agent import scheme_extractor as ex
+    waits, calls = [], []
+    monkeypatch.setattr(ex, "_sleep", waits.append)
+
+    class Models:
+        def generate_content(self, **kwargs):
+            calls.append(1)
+            raise RuntimeError("429 RESOURCE_EXHAUSTED quotaId GenerateRequestsPerDayPerProjectPerModel-FreeTier")
+
+    import pytest
+    with pytest.raises(RuntimeError):
+        ex.generate_json(type("C", (), {"models": Models()})(), "m", "p")
+    assert len(calls) == 1 and waits == []

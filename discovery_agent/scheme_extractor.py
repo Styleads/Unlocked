@@ -216,7 +216,10 @@ def generate_json(
                 "Gemini attempt %d/%d failed: %s",
                 attempt + 1, max_retries, type(error).__name__
             )
-            # Free-tier rate limits (HTTP 429 / RESOURCE_EXHAUSTED) clear in
+            # A daily quota won't clear for hours: fail now instead of waiting.
+            if is_daily_quota(error):
+                break
+            # Per-minute rate limits (HTTP 429 / RESOURCE_EXHAUSTED) clear in
             # seconds; retrying instantly just fails again.
             if attempt < max_retries - 1 and is_rate_limited(error):
                 _sleep(RATE_LIMIT_BACKOFF_S * (2 ** attempt))
@@ -226,6 +229,12 @@ def generate_json(
 
 RATE_LIMIT_BACKOFF_S = 2.0
 _sleep = time.sleep  # replaced in tests
+
+
+def is_daily_quota(error: Exception) -> bool:
+    """Gemini's per-day free-tier quota (its quota id names the period)."""
+    text = str(error).lower().replace(" ", "")
+    return "perday" in text
 
 
 def is_rate_limited(error: Exception) -> bool:

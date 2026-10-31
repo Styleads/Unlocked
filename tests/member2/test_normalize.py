@@ -561,3 +561,20 @@ def test_rejected_group_makes_rule_uncertain_not_own_condition():
 
 from member2.attributes import ATTRIBUTES as _ATTRS  # noqa: E402
 ATTRIBUTE_LABEL_DISABILITY = _ATTRS["has_disability"].label
+
+
+def test_gemini_daily_quota_fails_fast(monkeypatch):
+    import io, urllib.error, urllib.request
+    from member2.llm import GeminiClient, LLMError
+    calls = []
+
+    def fake_urlopen(req, timeout=None):
+        calls.append(1)
+        raise urllib.error.HTTPError(req.full_url, 429, "Too Many", {},
+                                     io.BytesIO(b'{"quotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier"}'))
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(llm_module.time, "sleep", lambda s: None)
+    with pytest.raises(LLMError, match="daily quota"):
+        GeminiClient(api_key="test-key-not-used").complete_json("s", "u")
+    assert len(calls) == 1

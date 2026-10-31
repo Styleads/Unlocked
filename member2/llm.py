@@ -70,6 +70,15 @@ class AnthropicClient:
 _RETRIES = 4
 
 
+def _daily_quota(exc: Exception) -> bool:
+    """True if a 429 body names a per-day quota (its quota id says so)."""
+    try:
+        body = exc.read().decode("utf-8", "replace")  # type: ignore[attr-defined]
+    except Exception:  # noqa: BLE001 - unreadable body: treat as transient
+        return False
+    return "perday" in body.lower().replace(" ", "")
+
+
 class _Transient(Exception):
     def __init__(self, code: int) -> None:
         self.code = code
@@ -123,6 +132,9 @@ class GeminiClient:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
                 return json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
+            if exc.code == 429 and _daily_quota(exc):
+                # A per-day quota won't clear by retrying; fail now.
+                raise LLMError("Gemini daily quota exhausted (HTTP 429)") from None
             if exc.code in (429, 500, 502, 503, 504):
                 raise _Transient(exc.code) from None
             raise LLMError(f"Gemini request failed (HTTP {exc.code})") from None
