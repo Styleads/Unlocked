@@ -15,3 +15,4 @@
 11. **Rejection next steps need verbatim evidence** from a provided guidance passage, a valid route (`correction | reapplication | appeal | clarification`), and a description with no unsourced numbers. A reason summary is shown only with a verified reason quote.
 12. **Logging:** task name, scheme id and exception type only.
 13. **`SchemeContext` uses `from_attributes=True`** so a member2 `SchemeRecord` object (what the backend holds) is accepted, not only its dict. Found when running Agent 4 on live canonical records: all entry points raised `ValidationError`.
+14. **`facts_from_scheme(scheme, *, attributes=None, limit=5)`** turns a scheme's rules into email facts: only `verified` rules with both `evidence` and `source_url`, one per distinct quote (compound-rule parts share one), optional attribute filter, capped at 5. Duck-typed, no member2 import. Without it every backend route would rebuild this and could quote unverified text as official.

@@ -466,6 +466,7 @@ plan = build_action_plan(
 | `build_calendar_artifact(request, *, now=None)` | `CalendarRequest {scheme, kind: deadline\|appointment, event_date, date_confirmed_by_user, date_source_url, start_time, end_time, location}` | `ActionArtifact` (`calendar_ics`), or `status: needs_input` with `missing_fields` |
 | `update_progress(progress, scheme_id, updates, *, now=None)` | saved `ApplicationProgress` (or `None`) + `[{field, state, simulated}]` | `ProgressResult {progress, follow_ups, warnings, summary}` |
 | `analyse_rejection(scheme, notice_text, guidance, *, llm=None, simulated=False)` | user's notice text + official guidance passages `[{text, source_url}]` | `RejectionAnalysis {reason_quote, next_steps, supported, ...}` |
+| `facts_from_scheme(scheme, *, attributes=None, limit=5)` | a scheme record | `list[SourcedFact]`: verified rules' exact quotes + links, de-duplicated, for `EmailRequest.facts` |
 | `email_request_for_step(scheme, step, question, user_details)` | a sourced `NextStep` (or `None`) | `EmailRequest` for a correction / appeal / clarification email |
 
 `scheme` may be a canonical `member2.models.SchemeRecord`, its dict, or any object/dict with `id` and `name`. Agent 4 reads `name`, `department`, `application_url`, `official_sources`, `deadline` + `deadline_source_url`, and optionally `contact_email` / `contact_phone` with their `*_source_url` (not produced by Agent 1 yet).

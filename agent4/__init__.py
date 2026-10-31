@@ -4,6 +4,7 @@ Any object with `complete_json(system, user) -> str` works as the LLM (e.g.
 `member2.default_client()`); without one, everything falls back to templates."""
 from .calendar_ics import build_calendar_artifact
 from .email_draft import build_email_draft
+from .facts import facts_from_scheme
 from .models import (
     ActionArtifact,
     ActionType,
@@ -28,7 +29,7 @@ from .progress import update_progress
 from .rejection import analyse_rejection, email_request_for_step
 
 __all__ = [
-    "build_email_draft", "build_calendar_artifact", "update_progress", "analyse_rejection", "email_request_for_step",
+    "build_email_draft", "facts_from_scheme", "build_calendar_artifact", "update_progress", "analyse_rejection", "email_request_for_step",
     "ActionArtifact", "ActionType", "ApplicationProgress", "ArtifactStatus", "CalendarRequest", "DecisionState",
     "EmailPurpose", "EmailRequest", "EventKind", "FactState", "FollowUp", "NextStep", "ProgressResult",
     "ProgressUpdate", "RejectionAnalysis", "RejectionRoute", "SchemeContext", "SourcedFact",
