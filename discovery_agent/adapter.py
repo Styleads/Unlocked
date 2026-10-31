@@ -210,9 +210,21 @@ def to_canonical_scheme(raw: Any) -> CanonicalSchemeRecord:
             benefit = str(raw_benefits)
 
     documents = [to_canonical_document(d, claims) for d in (data.get("documents") or data.get("required_documents") or [])]
+    # Rules about what happens after the award (attendance, refunds) are not
+    # eligibility: shown to the user as obligations, never asked as questions.
+    raw_reqs = data.get("requirements") or data.get("eligibility_criteria") or []
+    obligations = []
+    eligibility = []
+    for r in raw_reqs:
+        if _as_dict(r).get("kind") == "obligation":
+            d = _as_dict(r)
+            obligations.append({"text": d.get("description") or d.get("criterion") or "",
+                                "source_url": d.get("source_url"), "evidence": d.get("evidence")})
+        else:
+            eligibility.append(r)
     requirements = [
         to_canonical_requirement(r, index=i + 1, scheme_id=scheme_id, claims=claims)
-        for i, r in enumerate(data.get("requirements") or data.get("eligibility_criteria") or [])
+        for i, r in enumerate(eligibility)
     ]
 
     app_steps = data.get("application_steps")
@@ -265,6 +277,7 @@ def to_canonical_scheme(raw: Any) -> CanonicalSchemeRecord:
         relevance=data.get("relevance", "additional"),
         match_reasons=data.get("match_reasons") or [],
         source_evidence=data.get("source_evidence") or [],
+        obligations=data.get("obligations") or obligations,
     )
 
 

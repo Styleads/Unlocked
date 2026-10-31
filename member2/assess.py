@@ -57,10 +57,10 @@ def _end(text: str) -> str:
     return text if text.rstrip("'\"").endswith((".", "?", "!")) else text + "."
 
 
-def _result(req: Requirement, status: RequirementStatus, reason: str) -> RequirementResult:
+def _result(req: Requirement, status: RequirementStatus, reason: str, attribute: Optional[str] = None) -> RequirementResult:
     return RequirementResult(
         requirement_id=req.id,
-        attribute=req.attribute,
+        attribute=attribute or req.attribute,
         status=status,
         reason=reason,
         criterion=req.criterion,
@@ -83,6 +83,19 @@ def assess_requirement(req: Requirement, user_answers: AnswersInput = None) -> R
     if not mapped:
         return _result(req, RequirementStatus.needs_clarification, "We couldn't match this rule to a question we can ask.")
 
+    cond = req.condition
+    if cond is not None:
+        # "60% for SC/ST": first decide whether the rule applies to this user.
+        if not is_canonical(cond.attribute):
+            return _result(req, RequirementStatus.needs_clarification, "We couldn't tell which group this rule applies to.")
+        applies, _ = evaluate(cond.operator, cond.value, answers.get(cond.attribute))
+        if applies == RequirementStatus.unknown:
+            label = ATTRIBUTES[cond.attribute].label
+            return _result(req, RequirementStatus.unknown,
+                           f"This rule depends on your {label[:1].lower() + label[1:]}.", attribute=cond.attribute)
+        if applies == RequirementStatus.not_satisfied:
+            return _result(req, RequirementStatus.satisfied, "This rule is for a different group, so it doesn't apply to you.")
+
     status, reason = evaluate(req.operator, req.value, answer)
     return _result(req, status, reason)
 
@@ -91,10 +104,12 @@ def contradictory_requirement_ids(scheme: SchemeRecord) -> set[str]:
     """Verified requirements that state different values for the same attribute
     and operator (e.g. two different income limits). Different operators on one
     attribute, such as a min and a max age, are a normal range, not a conflict."""
-    groups: dict[tuple[str, Any], list[Requirement]] = defaultdict(list)
+    groups: dict[tuple[str, Any, str], list[Requirement]] = defaultdict(list)
     for req in scheme.requirements:
         if req.status == RequirementVerification.verified and is_canonical(req.attribute) and req.operator:
-            groups[(req.attribute, req.operator)].append(req)
+            # Rules for different groups (condition) are not in conflict.
+            cond = json.dumps(req.condition.model_dump(mode="json"), sort_keys=True) if req.condition else ""
+            groups[(req.attribute, req.operator, cond)].append(req)
     ids: set[str] = set()
     for reqs in groups.values():
         if len({json.dumps(r.value, sort_keys=True, default=str) for r in reqs}) > 1:

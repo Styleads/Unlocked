@@ -381,3 +381,77 @@ def test_unstated_extra_option_is_uncertain():
     text = "Students belonging to backward classes are eligible."
     out = _one_rule(text, [{"id": "r1", "attribute": "social_category", "operator": "in", "value": ["OBC", "Other"]}])
     assert out.requirements[0].status == V.uncertain
+
+
+# --- group-specific rules (live Sir C.V. Raman wording, fictionalised) -------
+
+MARKS = "Students passed previous year exam with 65% (General category) and 60% (Scheduled Castes and Scheduled Tribes)."
+
+
+def _marks_scheme(when_general=None, when_scst=None):
+    when_general = when_general or {"attribute": "social_category", "operator": "eq", "value": "General"}
+    when_scst = when_scst or {"attribute": "social_category", "operator": "in", "value": ["SC", "ST"]}
+    s = scheme([Requirement(id="r1", criterion=MARKS, status="verified", source_url=SRC, evidence=MARKS)])
+    return normalize_scheme(s, FakeLLM({"structured": [
+        {"id": "r1", "attribute": "previous_year_marks_percent", "operator": "gte", "value": 65, "when": when_general},
+        {"id": "r1", "attribute": "previous_year_marks_percent", "operator": "gte", "value": 60, "when": when_scst},
+    ], "extracted": []}))
+
+
+def _assess(s, **answers):
+    from member2 import assess_schemes
+    a = {k: {"attribute": k, "state": "answered", "value": v} for k, v in answers.items()}
+    return assess_schemes([s], a)[0]
+
+
+def test_group_rules_are_verified_and_not_conflicting():
+    s = _marks_scheme()
+    assert [r.status for r in s.requirements] == [V.verified, V.verified]
+    assert s.requirements[1].condition.value == ["SC", "ST"]
+    assert not any("different limits" in u for u in s.uncertainties)
+    res = _assess(s)
+    assert res.status.value == "more_information_needed"
+    assert "social_category" in res.missing_attributes
+
+
+def test_group_rule_applies_only_to_its_group():
+    s = _marks_scheme()
+    assert _assess(s, social_category="SC", previous_year_marks_percent=62).status.value != "unlikely_to_match"
+    assert _assess(s, social_category="General", previous_year_marks_percent=62).status.value == "unlikely_to_match"
+    assert _assess(s, social_category="General", previous_year_marks_percent=70).status.value != "unlikely_to_match"
+
+
+def test_unstated_group_makes_rule_uncertain():
+    s = _marks_scheme(when_scst={"attribute": "social_category", "operator": "in", "value": ["OBC"]})
+    assert s.requirements[1].status == V.uncertain
+
+
+def test_category_question_is_asked_for_group_rules():
+    from member2 import generate_consolidated_questions
+    attrs = [q.attribute for q in generate_consolidated_questions([_marks_scheme()], {}, {})]
+    assert "social_category" in attrs and "previous_year_marks_percent" in attrs
+
+
+def test_group_rules_survive_renormalization():
+    once = _marks_scheme()
+    twice = normalize_scheme(once, FakeLLM(RuntimeError("must not be called")))
+    assert [r.id for r in twice.requirements] == ["r1", "r1_2"]
+    assert twice.requirements[0].condition.value == "General"
+
+
+def test_misspelt_scheduled_cast_still_counts():
+    text = "Students passed previous year exam with 65% (General category) and 60% (Scheduled cast and Scheduled Tribes)."
+    out = _one_rule(text, [
+        {"id": "r1", "attribute": "previous_year_marks_percent", "operator": "gte", "value": 65,
+         "when": {"attribute": "social_category", "operator": "eq", "value": "General"}},
+        {"id": "r1", "attribute": "previous_year_marks_percent", "operator": "gte", "value": 60,
+         "when": {"attribute": "social_category", "operator": "in", "value": ["SC", "ST"]}}])
+    assert [r.status for r in out.requirements] == [V.verified, V.verified]
+    assert out.requirements[1].condition is not None
+
+
+def test_small_counts_do_not_trigger_limit_warning():
+    text = "First year B.Sc. students who have taken at least 2 subjects of the list Physics, Chemistry, Mathematics."
+    out = _one_rule(text, [{"id": "r1", "attribute": "year_of_study", "operator": "eq", "value": 1},
+                           {"id": "r1", "attribute": "unmapped", "operator": None, "value": "two core science subjects"}])
+    assert not any("different limits" in u for u in out.uncertainties)

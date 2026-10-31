@@ -29,6 +29,7 @@ from .models import (
     RangeOption,
     Requirement,
     RequirementResult,
+    RuleCondition,
     RequirementStatus,
     RequirementVerification,
     SchemeRecord,
@@ -77,7 +78,7 @@ __all__ = [
     # models
     "ActionPlan", "Answer", "AnswerState", "Assessment", "ChecklistItem", "DocStatus",
     "DocumentDependency", "DocumentRequirement", "GraphEdge", "GraphNode", "InputType",
-    "Operator", "Question", "RangeOption", "Requirement", "RequirementResult",
+    "Operator", "Question", "RangeOption", "Requirement", "RequirementResult", "RuleCondition",
     "RequirementStatus", "RequirementVerification", "SchemeRecord", "SchemeStatus",
     "Sensitivity", "VerificationStatus",
 ]

@@ -77,6 +77,9 @@ class SchemeCriterion(BaseModel):
     source_url: str | None = None
     # Exact sentence from source_url, checked verbatim by the extractor.
     evidence: str | None = None
+    # "eligibility" (asked as a question) or "obligation" (after the award:
+    # attendance, refunds, renewal marks; shown, not asked).
+    kind: Literal["eligibility", "obligation"] = "eligibility"
     verification_status: VerificationStatus = "unverified"
 
 

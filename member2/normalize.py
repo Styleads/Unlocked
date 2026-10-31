@@ -17,7 +17,7 @@ from pydantic import BaseModel, ValidationError
 from .assess import SchemeInput, _as_scheme
 from .attributes import ATTRIBUTES, AttributeSpec, is_canonical, normalize_text, resolve_attribute
 from .llm import LLMClient
-from .models import InputType, Operator, Requirement, RequirementVerification, SchemeRecord
+from .models import InputType, Operator, Requirement, RequirementVerification, RuleCondition, SchemeRecord
 
 log = logging.getLogger(__name__)
 
@@ -62,6 +62,9 @@ Rules:
 - If a criterion states several conditions (e.g. income AND course AND college type),
   return one "structured" item per condition, all with the same id. Use attribute
   "unmapped" with a short name in "value" for a condition no attribute fits; never drop it.
+- If a condition applies only to one group (e.g. "65% for General, 60% for SC/ST"),
+  return one item per group and add "when": {{"attribute": ..., "operator": ..., "value": ...}}
+  naming the group, e.g. {{"attribute": "social_category", "operator": "in", "value": ["SC", "ST"]}}.
 - "extracted" lists rules found in "eligibility_text" (empty if none is given).
 """
 
@@ -71,6 +74,7 @@ class _Structured(BaseModel):
     attribute: Optional[str] = None
     operator: Optional[str] = None
     value: Any = None
+    when: Optional[dict] = None  # group the rule applies to, e.g. social_category in [SC, ST]
 
 
 class _Extracted(BaseModel):
@@ -126,7 +130,7 @@ def _numbers_in_value(value: Any) -> list[float]:
 _OPTION_WORDS: dict[str, tuple[str, ...]] = {
     "Female": ("female", "girl", "girls", "women", "woman"),
     "Male": ("male", "boy", "boys", "men"),
-    "SC": ("sc", "scheduled caste", "scheduled castes"),
+    "SC": ("sc", "scheduled caste", "scheduled castes", "scheduled cast"),  # "cast": as written on a live gov.in page
     "ST": ("st", "scheduled tribe", "scheduled tribes"),
     "OBC": ("obc", "backward class", "backward classes", "other backward"),
     "General": ("general category", "general merit"),
@@ -162,7 +166,9 @@ def _unused_thresholds(parts: list[Requirement], evidence: Optional[str]) -> boo
     Category 2A". One comparison can't express such a conditional limit, so the
     rule must not decide anything. Magnitude window 0.25x-4x skips list numbers
     ("4.") and category codes ("2A") next to a threshold like 25 or 250000."""
-    used = [n for p in parts if p.operator is not None for n in _numbers_in_value(p.value)]
+    # Small values (year of study, number of subjects) can't be told apart from
+    # list numbers and counts ("at least 2 subjects"), so only real thresholds count.
+    used = [n for p in parts if p.operator is not None for n in _numbers_in_value(p.value) if n >= 10]
     if not used:
         return False
     for n in _numbers_in_text(evidence or ""):
@@ -221,7 +227,8 @@ def _deterministic(scheme: SchemeRecord) -> SchemeRecord:
         key = _squash(req.criterion).casefold()
         if getattr(req, LLM_MARK, None):
             # Conditions split from one criterion share its text; they differ by rule.
-            key += "|" + json.dumps([req.attribute, req.operator, req.value], sort_keys=True, default=str)
+            cond = req.condition.model_dump(mode="json") if req.condition else None
+            key += "|" + json.dumps([req.attribute, req.operator, req.value, cond], sort_keys=True, default=str)
         if key in seen:
             continue  # same rule listed twice; keeps normalization idempotent
         seen.add(key)
@@ -331,8 +338,19 @@ def _llm_pass(scheme: SchemeRecord, llm: LLMClient) -> SchemeRecord:
                 k += 1
             new_id = f"{req.id}_{k}"
             all_ids.add(new_id)
+        condition = None
+        if isinstance(s.when, dict):
+            c_attr, c_op, c_value = _canonical_rule(s.when.get("attribute"), s.when.get("operator"), s.when.get("value"), "group")
+            evidence = req.evidence or req.criterion
+            c_select = is_canonical(c_attr) and ATTRIBUTES[c_attr].input_type == InputType.select
+            if (is_canonical(c_attr) and c_op is not None and _numbers_supported(c_value, evidence)
+                    and not (c_select and not _select_values_supported(c_value, evidence))):
+                condition = RuleCondition(attribute=c_attr, operator=c_op, value=c_value)
+            elif status == RequirementVerification.verified:
+                # The group is unreadable or unsupported: the rule must not decide anything.
+                status = RequirementVerification.uncertain
         parts.append(req.model_copy(update={"id": new_id, "attribute": attr, "operator": op, "value": value,
-                                            "status": status, LLM_MARK: "structured"}))
+                                            "status": status, "condition": condition, LLM_MARK: "structured"}))
 
     for rid, parts in structured.items():
         if _unused_thresholds(parts, by_id[rid].evidence or by_id[rid].criterion):
@@ -341,7 +359,8 @@ def _llm_pass(scheme: SchemeRecord, llm: LLMClient) -> SchemeRecord:
                 if p.status == RequirementVerification.verified and p.operator is not None else p
                 for p in parts
             ]
-            _add_uncertainty(uncertainties, f"A rule has different limits for different groups and needs checking: {by_id[rid].criterion}")
+            # One note per scheme; the affected rules are already marked uncertain.
+            _add_uncertainty(uncertainties, "Some rules have different limits for different groups and need checking.")
 
     reqs = [part for r in scheme.requirements for part in structured.get(r.id, [r])]
 

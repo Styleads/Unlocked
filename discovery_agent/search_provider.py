@@ -166,7 +166,7 @@ def _is_retryable_error(error: Exception) -> bool:
 # Official-only search with retry
 # --------------------------------------------------
 
-def search_web(query: str, max_results: int = 10) -> list[dict]:
+def search_web(query: str, max_results: int = 10, include_raw: bool = False) -> list[dict]:
     """
     Search the web for official Indian government sources.
 
@@ -238,13 +238,18 @@ def search_web(query: str, max_results: int = 10) -> list[dict]:
                 if passages and passages not in content:
                     content = f"{content}\n{passages}".strip()
 
-                results.append({
+                result = {
                     "title": title,
                     "url": url,
                     "content": content,
                     "score": item.get("score", 0),
                     "is_official": True,
-                })
+                }
+                if include_raw:
+                    # Full page text, for per-scheme extraction (scheme_details.py).
+                    raw = item.get("raw_content")
+                    result["raw_content"] = raw if isinstance(raw, str) else ""
+                results.append(result)
 
             return results
 

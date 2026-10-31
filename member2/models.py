@@ -36,6 +36,15 @@ class Operator(str, Enum):
     is_false = "is_false"
 
 
+class RuleCondition(BaseModel):
+    """The group a requirement applies to, e.g. marks >= 60 only when
+    social_category in [SC, ST]. Evaluated like a requirement."""
+
+    attribute: str
+    operator: Operator
+    value: Any = None
+
+
 class Requirement(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -47,6 +56,7 @@ class Requirement(BaseModel):
     status: RequirementVerification = RequirementVerification.unverified
     source_url: Optional[str] = None
     evidence: Optional[str] = None
+    condition: Optional[RuleCondition] = None  # applies only to this group (DECISIONS #61)
 
     @field_validator("status", mode="before")
     @classmethod

@@ -239,6 +239,35 @@ def load_fallback_schemes(
 
 
 # --------------------------------------------------
+# 4b. Per-scheme detail pass (full eligibility from each scheme's own pages)
+# --------------------------------------------------
+
+DETAIL_MAX_SCHEMES = 10     # bounds cost: one search + one model call each
+DETAIL_CONCURRENCY = 4
+_RELEVANCE_ORDER = {"direct_match": 0, "related": 1, "additional": 2}
+
+
+async def _enrich_details(client, records: list[dict]) -> None:
+    """Deep-fetch the most relevant schemes in place. Best-effort: a failure
+    leaves the first-pass record unchanged."""
+    from discovery_agent.scheme_details import enrich_scheme
+
+    order = sorted(range(len(records)), key=lambda i: _RELEVANCE_ORDER.get(records[i].get("relevance"), 3))
+    gate = asyncio.Semaphore(DETAIL_CONCURRENCY)
+
+    async def one(i: int) -> bool:
+        async with gate:
+            try:
+                return await asyncio.to_thread(enrich_scheme, client, MODEL, records[i], search_web)
+            except Exception as error:
+                logger.warning("Detail pass failed for a scheme: %s", type(error).__name__)
+                return False
+
+    done = await asyncio.gather(*(one(i) for i in order[:DETAIL_MAX_SCHEMES]))
+    logger.info("Detail pass confirmed rules for %d of %d schemes.", sum(done), len(done))
+
+
+# --------------------------------------------------
 # 5. Main discovery pipeline
 # --------------------------------------------------
 
@@ -246,6 +275,7 @@ async def discover_schemes(
     user_context: dict,
     search_scope: str = "guided",
     enable_fallback: bool = False,
+    deep_fetch: bool = True,
 ) -> list[CanonicalSchemeRecord]:
     """
     Discover government benefit schemes for a user.
@@ -263,6 +293,8 @@ async def discover_schemes(
             'all' for broader search, or 'fallback' for offline data.
         enable_fallback: If True, returns fallback schemes when
             live discovery fails or yields no results.
+        deep_fetch: If True, search each scheme's own official pages
+            for its full eligibility list and documents.
 
     Returns:
         List of SchemeRecord objects. May be empty if no
@@ -381,9 +413,13 @@ async def discover_schemes(
                     "Fallback loading failed: %s", error
                 )
 
+        records = [s.model_dump() if hasattr(s, "model_dump") else dict(s) for s in schemes]
+        if deep_fetch and records:
+            await _enrich_details(client, records)
+
         # Live records use Agent 1's schema; convert so every path returns
         # the same canonical type (fallbacks are already converted).
-        return to_canonical_schemes(schemes)
+        return to_canonical_schemes(records)
 
     finally:
         client.close()

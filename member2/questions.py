@@ -74,6 +74,10 @@ def _useful_usage(schemes: Iterable[SchemeRecord], answers: dict[str, Answer], *
             ):
                 usage[req.attribute].scheme_ids.add(scheme.id)
                 usage[req.attribute].n_requirements += 1
+                # A group-specific rule also needs the attribute that picks the group.
+                if req.condition is not None and is_canonical(req.condition.attribute):
+                    usage[req.condition.attribute].scheme_ids.add(scheme.id)
+                    usage[req.condition.attribute].n_requirements += 1
     return usage
 
 
