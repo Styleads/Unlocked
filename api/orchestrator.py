@@ -17,12 +17,16 @@ from api.database import (
     update_answers_and_assessments,
     update_discovery_results,
     update_plan,
+    update_scheme_progress,
 )
 from api.schemas import (
     AnswerInput,
     DiscoveryResult,
     ReassessmentResult,
     SchemeView,
+    SessionCalendarActionRequest,
+    SessionEmailActionRequest,
+    SessionRejectionActionRequest,
 )
 from discovery_agent.discovery_pipeline import discover_schemes
 from discovery_agent.kannada_translator import translate_schemes_to_kannada
@@ -30,6 +34,7 @@ from member2 import (
     apply_answers,
     assess_schemes,
     build_action_plan,
+    default_client,
     generate_consolidated_questions,
     normalize_requirements,
     reassess_schemes,
@@ -41,6 +46,23 @@ from member2.models import (
     DocStatus,
     Question,
     SchemeRecord,
+)
+from agent4 import (
+    analyse_rejection,
+    build_calendar_artifact,
+    build_email_draft,
+    facts_from_scheme,
+    update_progress,
+)
+from agent4.models import (
+    ActionArtifact,
+    ApplicationProgress,
+    CalendarRequest,
+    EmailRequest,
+    ProgressResult,
+    ProgressUpdate,
+    RejectionAnalysis,
+    SourcedFact,
 )
 
 logger = logging.getLogger(__name__)
@@ -357,4 +379,161 @@ async def update_checklist_status(
     # Persist the recalculated plan and updated document states
     await update_plan(session_id, plan, user_docs, db_path=db_path)
     return plan
+
+
+# ---------------------------------------------------------------------------
+# Phase 8: Agent 4 Action & Follow-Through Orchestration
+# ---------------------------------------------------------------------------
+
+async def generate_email_action(
+    session_id: str,
+    request: SessionEmailActionRequest,
+    db_path: Optional[str] = None,
+) -> ActionArtifact:
+    """
+    Generate a grounded email draft for department inquiry or clarification.
+    Automatically extracts verified facts from the scheme record and applies
+    PII tokenization so private citizen details never leak to the LLM.
+    """
+    session = await get_session(session_id, db_path=db_path)
+    if not session:
+        raise KeyError(f"Session '{session_id}' not found.")
+
+    scheme = next((s for s in session.normalized_schemes if s.id == request.scheme_id), None)
+    if not scheme:
+        raise KeyError(f"Scheme '{request.scheme_id}' not found in session '{session_id}'.")
+
+    # Extract verified facts with verbatim evidence and source URLs from scheme
+    facts = list(request.facts)
+    extracted = facts_from_scheme(scheme, attributes=request.attributes)
+    seen_texts = {f.text for f in facts}
+    for f in extracted:
+        if f.text not in seen_texts:
+            facts.append(f)
+            seen_texts.add(f.text)
+
+    # Auto-seed user details from session context if not explicitly provided
+    user_details = dict(request.user_details)
+    if "Name" not in user_details:
+        name_val = session.context.get("name") or (session.context.get("personal", {}) or {}).get("name")
+        if name_val:
+            user_details["Name"] = name_val
+    if "District" not in user_details:
+        district_val = session.context.get("district") or (session.context.get("location", {}) or {}).get("district")
+        if district_val:
+            user_details["District"] = district_val
+
+    email_req = EmailRequest(
+        scheme=scheme,
+        purpose=request.purpose,
+        question=request.question,
+        user_details=user_details,
+        facts=facts,
+    )
+
+    llm = default_client()
+    return build_email_draft(email_req, llm=llm)
+
+
+async def generate_calendar_action(
+    session_id: str,
+    request: SessionCalendarActionRequest,
+    db_path: Optional[str] = None,
+) -> ActionArtifact:
+    """
+    Generate an RFC 5545 .ics calendar artifact for an application deadline or appointment.
+    Appointments are timed in Asia/Kolkata; deadlines are all-day events.
+    """
+    session = await get_session(session_id, db_path=db_path)
+    if not session:
+        raise KeyError(f"Session '{session_id}' not found.")
+
+    scheme = next((s for s in session.normalized_schemes if s.id == request.scheme_id), None)
+    if not scheme:
+        raise KeyError(f"Scheme '{request.scheme_id}' not found in session '{session_id}'.")
+
+    cal_req = CalendarRequest(
+        scheme=scheme,
+        kind=request.kind,
+        event_date=request.event_date,
+        date_confirmed_by_user=request.date_confirmed_by_user,
+        date_source_url=request.date_source_url,
+        start_time=request.start_time,
+        end_time=request.end_time,
+        location=request.location,
+        notes=request.notes,
+        remind_days_before=request.remind_days_before,
+    )
+
+    return build_calendar_artifact(cal_req)
+
+
+async def record_application_progress(
+    session_id: str,
+    scheme_id: str,
+    updates: Sequence[Union[ProgressUpdate, dict[str, Any]]],
+    db_path: Optional[str] = None,
+) -> ProgressResult:
+    """
+    Record user-reported application progress in SQLite and evaluate follow-up
+    questions and contradiction warnings.
+    """
+    session = await get_session(session_id, db_path=db_path)
+    if not session:
+        raise KeyError(f"Session '{session_id}' not found.")
+
+    current = session.progress.get(scheme_id)
+    result = update_progress(current, scheme_id, updates)
+    await update_scheme_progress(session_id, scheme_id, result.progress, db_path=db_path)
+    return result
+
+
+async def get_application_progress(
+    session_id: str,
+    scheme_id: Optional[str] = None,
+    db_path: Optional[str] = None,
+) -> Union[ProgressResult, dict[str, Any]]:
+    """
+    Retrieve application progress for a single scheme or all tracked schemes.
+    """
+    session = await get_session(session_id, db_path=db_path)
+    if not session:
+        raise KeyError(f"Session '{session_id}' not found.")
+
+    if scheme_id:
+        p = session.progress.get(scheme_id)
+        return update_progress(p, scheme_id, [])
+
+    return {k: v.model_dump(mode="json") for k, v in session.progress.items()}
+
+
+async def analyze_scheme_rejection(
+    session_id: str,
+    request: SessionRejectionActionRequest,
+    db_path: Optional[str] = None,
+) -> RejectionAnalysis:
+    """
+    Analyze an official rejection notice, redact PII, extract reasons, and recommend
+    only verified next steps supported by official guidelines.
+    """
+    session = await get_session(session_id, db_path=db_path)
+    if not session:
+        raise KeyError(f"Session '{session_id}' not found.")
+
+    scheme = next((s for s in session.normalized_schemes if s.id == request.scheme_id), None)
+    if not scheme:
+        raise KeyError(f"Scheme '{request.scheme_id}' not found in session '{session_id}'.")
+
+    guidance = list(request.guidance_passages)
+    if not guidance:
+        guidance = facts_from_scheme(scheme)
+
+    llm = default_client()
+    return analyse_rejection(
+        scheme,
+        request.notice_text,
+        guidance=guidance,
+        llm=llm,
+        simulated=request.simulated,
+    )
 

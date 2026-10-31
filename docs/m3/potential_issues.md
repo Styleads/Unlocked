@@ -98,15 +98,11 @@
 ## 4. Agent 4: Action & Follow-Through Findings & Flaws
 
 ### Issue 4.1: Agent 4 Routes Not Yet Mounted in FastAPI Backend (P1 Scope)
-* **Location:** `api/main.py`
+* **Location:** `api/main.py`, `api/orchestrator.py`
 * **Severity:** Low (P1 Scope Item)
 * **Symptom:** Frontend cannot yet call `/api/actions/email`, `/api/actions/calendar`, or `/api/progress` via HTTP.
 * **Root Cause:** Member 3's Round 1 Plan focused on P0 deliverables (Sessions, Discovery, Questionnaire, Reassessment, Planning). Agent 4 was implemented as a standalone package with demo scripts.
-* **Recommended Action:** Mount Agent 4 endpoints in `api/main.py` and `api/orchestrator.py`:
-  - `POST /api/sessions/{session_id}/actions/email`
-  - `POST /api/sessions/{session_id}/actions/calendar`
-  - `POST /api/sessions/{session_id}/progress`
-  - `POST /api/sessions/{session_id}/actions/rejection`
+* **Resolution / Status:** **Resolved in Phase 8**. Mounted full session-scoped routes (`POST /api/sessions/{session_id}/actions/email`, `POST /api/sessions/{session_id}/actions/calendar`, `GET /download`, `POST /api/sessions/{session_id}/progress`, `POST /api/sessions/{session_id}/actions/rejection`) and standalone routes (`POST /api/actions/email`, `/calendar`, `/rejection`, `POST /api/progress`). Persisted progress state in SQLite `sessions` table. Verified with 5 automated integration tests in `tests/test_api_actions.py`.
 
 ### Issue 4.2: Missing Time on Appointments Halts Calendar Generation
 * **Location:** `agent4/calendar_ics.py` (Lines 94–105)
@@ -153,8 +149,9 @@
 | **3.1** | Agent 2 | High | Empty question batch when candidate rules unverified | Mitigated via fallback data updates |
 | **3.2** | Agent 3 | Medium | Document prerequisites empty without baseline DAG | Logged for Round 2 baseline injection |
 | **3.3** | Agent 3 | Medium | Sourceless documents excluded from checklist | Mitigated via adapter URL inheritance |
-| **4.1** | Agent 4 | Low | Agent 4 routes not yet wired into REST API | Planned for P1 REST routing |
+| **4.1** | Agent 4 | Low | Agent 4 routes not yet wired into REST API | **Resolved** (mounted session & standalone routes) |
 | **4.2** | Agent 4 | Low | Missing appointment time triggers `needs_input` | Working as intended (by design) |
 | **4.3** | Agent 4 | Low | Unsupported appeal path without official guidance | Working as intended (guardrail) |
 | **5.1** | Backend | Medium | SQLite database lock contention under load | **Mitigated** with WAL & 30s busy timeout |
 | **5.2** | Backend | Low | CORS wildcard configuration | **Mitigated** with specific origin lists |
+

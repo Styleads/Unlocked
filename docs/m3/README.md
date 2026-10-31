@@ -9,6 +9,8 @@
 * **Master Architecture Plan:** [`plan.md`](file:///home/kruthik/coding/Unlocked/plan.md)
 * **Shared Contract:** [`docs/agents.md`](file:///home/kruthik/coding/Unlocked/docs/agents.md)
 * **Potential Issues & Code Review Log:** [`docs/m3/potential_issues.md`](file:///home/kruthik/coding/Unlocked/docs/m3/potential_issues.md)
+* **Test Status:** 455 tests passed offline (100% green in ~1.9s)
+* **Integration Status:** Backend feature freeze (Option A) — 100% complete & ready for Frontend Integration
 
 ---
 
@@ -40,6 +42,11 @@
   - `POST /api/sessions/{session_id}/answers`
   - `GET /api/sessions/{session_id}/plan`
   - `POST /api/sessions/{session_id}/checklist/{item_id}`
+  - `POST /api/sessions/{session_id}/actions/email` (Phase 8)
+  - `POST /api/sessions/{session_id}/actions/calendar` and `/download` (Phase 8)
+  - `POST /api/sessions/{session_id}/progress` and `GET` (Phase 8)
+  - `POST /api/sessions/{session_id}/actions/rejection` (Phase 8)
+  - `POST /api/actions/email`, `/calendar`, `/rejection`, `/progress` (Standalone, Phase 8)
 
 > [!IMPORTANT]
 > **Orchestrator Rules for Calling Member 2's Modules:**
@@ -69,8 +76,10 @@
 | Time | Target | Status |
 |---|---|---|
 | Oct 31, 5:30 PM | FastAPI runs, SQLite initializes, session created, contracts agreed | Done |
-| Oct 31, 7:00 PM | Review Round 1: Orchestrator connects context -> discovery -> initial result (Plan updated in `M3_Coding_Round_1_Plan.md`) | Done |
-| Oct 31, 12:05 AM | Complete flow: discovery -> question storage -> reassessment persistence | Pending |
-| Nov 1, 3:00 AM | End-to-end integration with frontend; document plan persisted | Pending |
+| Oct 31, 7:00 PM | Review Round 1: Orchestrator connects context -> discovery -> initial result (M3 Plan updated) | Done |
+| Oct 31, 10:20 PM | Review Round 1 Complete: All 6 stages implemented & verified (450 tests passing); Agent 4 merged | Done |
+| Oct 31, 10:45 PM | Phase 8 Complete: Agent 4 REST routes (`/api/actions`, `/api/progress`) & SQLite persistence (455 tests passing) | Done |
+| Oct 31, 12:05 AM | Coding Session 2: Frontend live wireup & bilingual translation parity | Up Next |
+| Nov 1, 3:00 AM | Coding Session 3: End-to-end integration with frontend; document plan persisted | Pending |
 | Nov 1, 6:30 AM | Code freeze, tag demo commit, dry-run rehearsed | Pending |
 

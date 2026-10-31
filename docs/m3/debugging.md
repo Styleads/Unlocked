@@ -43,3 +43,13 @@ Document database lock issues, serialization bugs, session state glitches, and i
 * **Fix / Workaround:** Added normalization in `api/orchestrator.process_answers()` converting `AnswerInput` models into clean dictionaries with default `state="answered"` before delegating to `apply_answers()`.
 * **Verification:** `pytest tests/test_api.py` passed (6 passed in test suite).
 
+### [2026-10-31 22:36] Bug: Rejection Analysis Keyword Mismatch & Nested Context Lookup
+* **Symptom:** `POST /api/sessions/{session_id}/actions/rejection` raised `TypeError: analyse_rejection() got an unexpected keyword argument 'guidance_passages'` and `FullSessionState` omitted `progress`.
+* **Cause:** Agent 4's `analyse_rejection` signature accepts `guidance` as third positional/keyword argument. Additionally, `to_user_context()` nests `district` under `context["location"]["district"]`, causing flat lookup to miss district details.
+* **Fix / Workaround:**
+  1. Updated `analyse_rejection` calls in `orchestrator.py` and `main.py` to pass `guidance=...`.
+  2. Enhanced context extraction in `generate_email_action` to inspect both top-level and nested `location`/`personal` dictionaries.
+  3. Added `progress: dict[str, Any]` to `FullSessionState` model in `api/schemas.py`.
+* **Verification:** `PYTHONPATH=. .venv/bin/pytest tests/test_api_actions.py -v` -> 5 passed (100%).
+
+

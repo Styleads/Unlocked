@@ -28,6 +28,7 @@ from member2.models import (
     SchemeRecord,
 )
 from member2.questions import apply_answers
+from agent4.models import ApplicationProgress
 from api.schemas import UserProfileInput
 
 logger = logging.getLogger(__name__)
@@ -60,6 +61,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     assessments_json TEXT,
     plan_json TEXT,
     user_documents_json TEXT,
+    progress_json TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -120,6 +122,7 @@ class SessionRecord:
     assessments: list[Assessment] = field(default_factory=list)
     plan: Optional[ActionPlan] = None
     user_documents: dict[str, str] = field(default_factory=dict)
+    progress: dict[str, ApplicationProgress] = field(default_factory=dict)
     created_at: str = ""
     updated_at: str = ""
 
@@ -139,6 +142,7 @@ class SessionRecord:
             "assessments": [a.model_dump(mode="json") for a in self.assessments],
             "plan": self.plan.model_dump(mode="json") if self.plan else None,
             "user_documents": self.user_documents,
+            "progress": {k: v.model_dump(mode="json") for k, v in self.progress.items()},
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -153,10 +157,10 @@ async def get_connection(db_path: Optional[str] = None):
     """Connect to SQLite and configure high-concurrency WAL mode."""
     target_path = Path(get_db_path(db_path))
     target_path.parent.mkdir(parents=True, exist_ok=True)
-    async with aiosqlite.connect(str(target_path)) as conn:
+    async with aiosqlite.connect(str(target_path), timeout=30.0) as conn:
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA journal_mode = WAL;")
-        await conn.execute("PRAGMA busy_timeout = 5000;")
+        await conn.execute("PRAGMA busy_timeout = 30000;")
         await conn.execute("PRAGMA synchronous = NORMAL;")
         yield conn
 
@@ -165,6 +169,10 @@ async def init_db(db_path: Optional[str] = None) -> None:
     """Initialize database tables and indexes."""
     async with get_connection(db_path) as conn:
         await conn.executescript(CREATE_TABLES_SQL)
+        try:
+            await conn.execute("ALTER TABLE sessions ADD COLUMN progress_json TEXT;")
+        except Exception:
+            pass  # Column already exists
         await conn.commit()
     logger.info("Database initialized at %s", db_path)
 
@@ -212,9 +220,9 @@ async def create_session(
         session_id, scope, preferred_language, state_status, context_json,
         raw_schemes_json, normalized_schemes_json, questions_json, answers_json,
         history_json, assessments_json, plan_json, user_documents_json,
-        created_at, updated_at
+        progress_json, created_at, updated_at
     ) VALUES (
-        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
     );
     """
 
@@ -234,6 +242,7 @@ async def create_session(
                 _to_json(initial_history),
                 _to_json([]),
                 _to_json(None),
+                _to_json({}),
                 _to_json({}),
                 now_iso,
                 now_iso,
@@ -255,6 +264,7 @@ async def create_session(
         assessments=[],
         plan=None,
         user_documents={},
+        progress={},
         created_at=now_iso,
         updated_at=now_iso,
     )
@@ -280,6 +290,8 @@ async def get_session(session_id: str, db_path: Optional[str] = None) -> Optiona
     assessments_data = _from_json(row["assessments_json"], [])
     plan_data = _from_json(row["plan_json"], None)
     user_documents = _from_json(row["user_documents_json"], {})
+    progress_raw = row["progress_json"] if "progress_json" in row.keys() else None
+    progress_data = _from_json(progress_raw, {})
 
     # Reconstruct typed Member 2 models
     normalized_schemes = [
@@ -298,6 +310,9 @@ async def get_session(session_id: str, db_path: Optional[str] = None) -> Optiona
         Assessment.model_validate(a) for a in assessments_data
     ]
     plan = ActionPlan.model_validate(plan_data) if plan_data else None
+    progress = {
+        k: ApplicationProgress.model_validate(v) for k, v in progress_data.items()
+    } if progress_data else {}
 
     return SessionRecord(
         session_id=row["session_id"],
@@ -313,6 +328,7 @@ async def get_session(session_id: str, db_path: Optional[str] = None) -> Optiona
         assessments=assessments,
         plan=plan,
         user_documents=user_documents,
+        progress=progress,
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )
@@ -474,3 +490,32 @@ async def list_sessions(limit: int = 50, db_path: Optional[str] = None) -> list[
         async with conn.execute(sql, (limit,)) as cursor:
             rows = await cursor.fetchall()
             return [dict(row) for row in rows]
+
+
+async def update_scheme_progress(
+    session_id: str,
+    scheme_id: str,
+    scheme_progress: ApplicationProgress,
+    db_path: Optional[str] = None,
+) -> SessionRecord:
+    """Update user-reported application progress for a specific scheme in SQLite."""
+    session = await get_session(session_id, db_path=db_path)
+    if not session:
+        raise KeyError(f"Session '{session_id}' not found.")
+
+    session.progress[scheme_id] = scheme_progress
+    now_iso = datetime.now(timezone.utc).isoformat()
+    sql = "UPDATE sessions SET progress_json = ?, updated_at = ? WHERE session_id = ?;"
+    async with get_connection(db_path) as conn:
+        await conn.execute(
+            sql,
+            (
+                _to_json({k: v.model_dump(mode="json") for k, v in session.progress.items()}),
+                now_iso,
+                session_id,
+            ),
+        )
+        await conn.commit()
+    session.updated_at = now_iso
+    return session
+

@@ -2,10 +2,11 @@
 api/schemas.py — Public Pydantic schemas for Project Unlocked REST API.
 
 Defines all request and response models consumed by Member 4 (Frontend),
-adhering strictly to docs/agents.md and M3_Coding_Round_1_Plan.md.
+adhering strictly to docs/agents.md and plan.md.
 """
 from __future__ import annotations
 
+from datetime import date, time
 from typing import Any, Literal, Optional, Union
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -249,6 +250,7 @@ class FullSessionState(BaseModel):
     assessments: list[dict[str, Any]] = Field(default_factory=list)
     plan: Optional[dict[str, Any]] = None
     user_documents: dict[str, str] = Field(default_factory=dict)
+    progress: dict[str, Any] = Field(default_factory=dict)
     created_at: str
     updated_at: str
 
@@ -341,6 +343,106 @@ class UpdateDocStatusRequest(BaseModel):
     status: Union[DocStatus, str]
 
 
+# ---------------------------------------------------------------------------
+# 7. Action & Follow-Through Schemas (Agent 4)
+# ---------------------------------------------------------------------------
+
+from agent4.models import (
+    ActionArtifact,
+    ActionType,
+    ApplicationProgress,
+    ArtifactStatus,
+    CalendarRequest,
+    DecisionState,
+    EmailPurpose,
+    EmailRequest,
+    EventKind,
+    FactState,
+    FollowUp,
+    NextStep,
+    ProgressResult,
+    ProgressUpdate,
+    RejectionAnalysis,
+    RejectionRoute,
+    Reported,
+    SchemeContext,
+    SourcedFact,
+)
+
+
+class SessionEmailActionRequest(BaseModel):
+    """Request to generate an inquiry or clarification email draft for a session scheme."""
+    scheme_id: str
+    purpose: EmailPurpose = EmailPurpose.inquiry
+    question: str = Field(min_length=1, max_length=2000)
+    user_details: dict[str, str] = Field(default_factory=dict)
+    attributes: Optional[list[str]] = None
+    facts: list[SourcedFact] = Field(default_factory=list)
+
+
+class SessionCalendarActionRequest(BaseModel):
+    """Request to generate an RFC 5545 .ics calendar entry for an application deadline or appointment."""
+    scheme_id: str
+    kind: EventKind = EventKind.deadline
+    event_date: Optional[date] = None
+    date_confirmed_by_user: bool = False
+    date_source_url: Optional[str] = None
+    start_time: Optional[time] = None
+    end_time: Optional[time] = None
+    location: Optional[str] = None
+    notes: Optional[str] = None
+    remind_days_before: list[int] = Field(default_factory=lambda: [3, 1])
+
+
+class SessionProgressRequest(BaseModel):
+    """Request to report progress updates for a scheme in the current session."""
+    scheme_id: str
+    updates: list[Union[ProgressUpdate, dict[str, Any]]] = Field(default_factory=list)
+
+
+class SessionRejectionActionRequest(BaseModel):
+    """Request to analyze an official rejection notice and recommend verified next steps."""
+    scheme_id: str
+    notice_text: str = Field(min_length=1)
+    guidance_passages: list[Union[SourcedFact, dict[str, Any]]] = Field(default_factory=list)
+    simulated: bool = False
+
+
+# Standalone / Unscoped Action Request Models (matching agent4/README.md)
+class StandaloneEmailRequest(BaseModel):
+    scheme: Union[SchemeContext, dict[str, Any]]
+    purpose: EmailPurpose = EmailPurpose.inquiry
+    question: str = Field(min_length=1, max_length=2000)
+    user_details: dict[str, str] = Field(default_factory=dict)
+    facts: list[SourcedFact] = Field(default_factory=list)
+
+
+class StandaloneCalendarRequest(BaseModel):
+    scheme: Union[SchemeContext, dict[str, Any]]
+    kind: EventKind = EventKind.deadline
+    event_date: Optional[date] = None
+    date_confirmed_by_user: bool = False
+    date_source_url: Optional[str] = None
+    start_time: Optional[time] = None
+    end_time: Optional[time] = None
+    location: Optional[str] = None
+    notes: Optional[str] = None
+    remind_days_before: list[int] = Field(default_factory=lambda: [3, 1])
+
+
+class StandaloneProgressRequest(BaseModel):
+    scheme_id: str
+    current_progress: Optional[Union[ApplicationProgress, dict[str, Any]]] = None
+    updates: list[Union[ProgressUpdate, dict[str, Any]]] = Field(default_factory=list)
+
+
+class StandaloneRejectionRequest(BaseModel):
+    scheme: Union[SchemeContext, dict[str, Any]]
+    notice_text: str = Field(min_length=1)
+    guidance_passages: list[Union[SourcedFact, dict[str, Any]]] = Field(default_factory=list)
+    simulated: bool = False
+
+
 __all__ = [
     # Health
     "HealthResponse",
@@ -361,6 +463,34 @@ __all__ = [
     "ReassessmentResult",
     # Document Action Plan
     "UpdateDocStatusRequest",
+    # Action & Follow-Through (Agent 4)
+    "ActionArtifact",
+    "ActionType",
+    "ApplicationProgress",
+    "ArtifactStatus",
+    "CalendarRequest",
+    "DecisionState",
+    "EmailPurpose",
+    "EmailRequest",
+    "EventKind",
+    "FactState",
+    "FollowUp",
+    "NextStep",
+    "ProgressResult",
+    "ProgressUpdate",
+    "RejectionAnalysis",
+    "RejectionRoute",
+    "Reported",
+    "SchemeContext",
+    "SourcedFact",
+    "SessionEmailActionRequest",
+    "SessionCalendarActionRequest",
+    "SessionProgressRequest",
+    "SessionRejectionActionRequest",
+    "StandaloneEmailRequest",
+    "StandaloneCalendarRequest",
+    "StandaloneProgressRequest",
+    "StandaloneRejectionRequest",
     # Re-exported Member 2 models
     "ActionPlan",
     "Answer",

@@ -90,4 +90,38 @@ Document decisions regarding backend framework, SQLite schemas, session manageme
   6. Exposed document action planning DAG: `GET /api/sessions/{session_id}/plan` and `POST /api/sessions/{session_id}/checklist/{doc_id}`.
 * **Consequences:** Member 4 frontend has a fully live, tested HTTP backend. 6 new HTTP integration tests passing in `tests/test_api.py`. Total test count: 366 passing.
 
+### [2026-10-31] ADR-009: Integration of Agent 4 Package, Active Branch Alignment, and Further Phases Roadmap
+* **Status:** Accepted
+* **Context:** Peer agent completed and merged `agent4/` (Action & Follow-Through with 61 tests), isolated Member 3 work on branch `backend`, added cross-agent issue logs (`POTENTIAL_ISSUES.md`), and recommended 5 plan synchronizations.
+* **Decision:**
+  1. Updated `M3_Coding_Round_1_Plan.md` metadata to reflect `backend` branch and added `agent4/` layout and `anthropic>=0.40.0` dependency.
+  2. Updated `discover_schemes` signature to canonical return type `list[member2.models.SchemeRecord]`.
+  3. Documented full 450-test offline passing status in Section 11 and Section 15.
+  4. Mitigated Issue 5.1 (`aiosqlite` busy timeout 30s) and Issue 5.2 (CORS origin security) in `api/database.py` and `api/main.py`.
+  5. Established formal roadmap for further phases: Phase 8 (Agent 4 REST mounting), Phase 9 (Frontend UX integration), and Phase 10 (Reliability hardening & final rehearsal).
+* **Consequences:** Repository documentation, plan, and codebase are 100% harmonized. Full test suite remains 100% green (450 passing in ~1.8s).
+
+### [2026-10-31] ADR-010: Phase 8 Agent 4 Action & Follow-Through REST Integration
+* **Status:** Accepted
+* **Context:** Need REST endpoints exposing Agent 4's 4 core deliverables (email drafting with PII tokenization and sourced facts, RFC 5545 .ics calendar generation and download, multi-state progress tracking, and rejection assistance) for Member 4 frontend consumption.
+* **Decision:**
+  1. Added `progress_json TEXT` column to SQLite `sessions` table in `api/database.py`, with automatic migration on startup.
+  2. Implemented `update_scheme_progress()` and updated `SessionRecord` and `FullSessionState` to persist and restore progress state.
+  3. Implemented orchestrator handlers (`generate_email_action`, `generate_calendar_action`, `record_application_progress`, `get_application_progress`, `analyze_scheme_rejection`) auto-grounding in scheme verified facts and session context.
+  4. Mounted both session-scoped routes (`POST /api/sessions/{session_id}/actions/...`, `GET /download`) and standalone routes (`POST /api/actions/...`, `POST /api/progress`).
+  5. Added 5 integration tests in `tests/test_api_actions.py`.
+* **Consequences:** All Agent 4 capabilities are fully usable via HTTP by Member 4 and the demo UI. Total test suite reached 455 passing tests (100% green).
+
+### [2026-10-31] ADR-011: Option A Feature Freeze & Backend Readiness for Frontend Integration
+* **Status:** Accepted
+* **Context:** All backend phases (0 through 8) are fully implemented, verified, and passing 455 tests across all four agents. Team is holding off frontend integration temporarily.
+* **Decision:**
+  1. Chose Option A: Freeze backend feature work at current stable checkpoint (455 passed tests) to prevent regressions prior to team review.
+  2. Cleaned up temporary planning markdown documents (`M3_Coding_Round_1_Plan.md`) and finalized repository documentation across all agent folders.
+  3. Verified complete fast-forward readiness for merging `backend` into `main` and deploying.
+* **Consequences:** Backend is 100% stable, hardened, durable, and ready for full end-to-end integration testing with Member 4 (Frontend).
+
+
+
+
 

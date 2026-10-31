@@ -10,11 +10,11 @@
 
 ## Executive Summary & Integration Status
 
-All four agents and the central backend have been reviewed and integrated on the `backend` branch. The test suite is passing with **450 tests (100% pass rate)**.
+All four agents and the central backend have been reviewed and integrated on the `backend` branch. The test suite is passing with **455 tests (100% pass rate)**.
 
 ```bash
 PYTHONPATH=. .venv/bin/pytest tests/ --ignore=live_api_test.py
-# Output: 450 passed in 1.76s
+# Output: 455 passed in 1.91s
 ```
 
 ---
@@ -31,7 +31,7 @@ PYTHONPATH=. .venv/bin/pytest tests/ --ignore=live_api_test.py
 | **3.1** | Agent 2 | High | Empty question batch when candidate rules unverified (`_useful_usage`) | Mitigated via fallback data updates |
 | **3.2** | Agent 3 | Medium | Document prerequisites empty without baseline DAG (`KNOWN_PREREQUISITES`) | Logged for Round 2 baseline injection |
 | **3.3** | Agent 3 | Medium | Sourceless documents excluded from checklist | Mitigated via adapter URL inheritance |
-| **4.1** | Agent 4 | Low | Agent 4 routes not yet wired into REST API (`/api/actions`) | Planned for P1 REST routing |
+| **4.1** | Agent 4 | Low | Agent 4 routes not yet wired into REST API (`/api/actions`) | **Resolved** (mounted in session & standalone routes) |
 | **4.2** | Agent 4 | Low | Missing appointment time triggers `needs_input` with `missing_fields` | Working as intended (safety guardrail) |
 | **4.3** | Agent 4 | Low | Unsupported appeal path without official guidance excerpts | Working as intended (safety guardrail) |
 | **5.1** | Backend | Medium | SQLite database lock contention under rapid async write load | **Mitigated** with WAL & 30s busy timeout |
@@ -40,3 +40,4 @@ PYTHONPATH=. .venv/bin/pytest tests/ --ignore=live_api_test.py
 ---
 
 *For detailed root causes, reproduction code, and architectural mitigations for each issue, see [`docs/m3/potential_issues.md`](file:///home/kruthik/coding/Unlocked/docs/m3/potential_issues.md).*
+
