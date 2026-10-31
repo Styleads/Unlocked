@@ -8,6 +8,7 @@ retry logic with exponential backoff, and robust error handling.
 import logging
 import os
 import random
+import re
 import time
 from pathlib import Path
 from urllib.parse import urlparse
@@ -45,37 +46,46 @@ OFFICIAL_DOMAINS = [
 
 # Search snippets (~1,500 chars) rarely contain the eligibility rules or the
 # document list, so the extractor had nothing to quote. We also request the
-# page text and keep only the paragraphs that talk about rules and documents.
-# They are copied verbatim, so the extractor's quote check still works.
-RULE_KEYWORDS = (
-    "eligib", "criteria", "criterion", "who can apply", "applicant", "must",
-    "should be", "income", "age", "years", "domicile", "resident", "category",
-    "document", "certificate", "required", "proof", "marks", "percentage",
-    "hectare", "land", "student", "course", "family",
-)
+# page text and keep the paragraphs that share the most terms with the search
+# query (which comes from the user's profile). Copied verbatim, so the
+# extractor's quote check still works. No fixed keyword list (DECISIONS: data-driven).
 MAX_PASSAGE_CHARS = 4000
 MIN_PARAGRAPH_CHARS = 30
+MIN_TERM_CHARS = 4
+COMMON_TERM_SHARE = 0.5  # a term in over half the page's paragraphs says nothing
 
 
-def relevant_passages(raw_content, limit: int = MAX_PASSAGE_CHARS) -> str:
-    """Paragraphs of the page that mention rules or documents, verbatim, in
-    page order, up to `limit` characters."""
+def _terms(text: str) -> set[str]:
+    return {w for w in re.findall(r"[a-z0-9]+", text.casefold()) if len(w) >= MIN_TERM_CHARS}
+
+
+def relevant_passages(raw_content, query: str = "", limit: int = MAX_PASSAGE_CHARS) -> str:
+    """The page's paragraphs that share the most query terms, verbatim, kept in
+    page order, up to `limit` characters. Terms present in most paragraphs of
+    this page (its own common words) are ignored, so ranking adapts per page."""
     if not isinstance(raw_content, str) or not raw_content.strip():
         return ""
-    out, size, seen = [], 0, set()
+    paras, seen = [], set()
     for para in raw_content.replace("\r", "").split("\n"):
         para = " ".join(para.split())
         key = para.casefold()
-        if len(para) < MIN_PARAGRAPH_CHARS or key in seen:
+        if len(para) >= MIN_PARAGRAPH_CHARS and key not in seen:
+            seen.add(key)
+            paras.append(para)
+    if not paras:
+        return ""
+    para_terms = [_terms(p) for p in paras]
+    wanted = _terms(query)
+    common = {t for t in wanted if sum(t in pt for pt in para_terms) > COMMON_TERM_SHARE * len(paras)}
+    wanted -= common
+    scored = [(len(wanted & pt), i) for i, pt in enumerate(para_terms) if wanted & pt]
+    keep, size = set(), 0
+    for _, i in sorted(scored, key=lambda x: (-x[0], x[1])):
+        if size + len(paras[i]) > limit:
             continue
-        if not any(k in key for k in RULE_KEYWORDS):
-            continue
-        if size + len(para) > limit:
-            break
-        seen.add(key)
-        out.append(para)
-        size += len(para) + 1
-    return "\n".join(out)
+        keep.add(i)
+        size += len(paras[i]) + 1
+    return "\n".join(paras[i] for i in sorted(keep))
 
 
 def is_official_government_url(url: str) -> bool:
@@ -234,7 +244,7 @@ def search_web(query: str, max_results: int = 10, include_raw: bool = False) -> 
                 if not isinstance(content, str):
                     content = ""
 
-                passages = relevant_passages(item.get("raw_content"))
+                passages = relevant_passages(item.get("raw_content"), query)
                 if passages and passages not in content:
                     content = f"{content}\n{passages}".strip()
 

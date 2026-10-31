@@ -138,7 +138,7 @@ def test_relevant_passages_keep_rule_paragraphs_verbatim():
            "Applicants must be permanent residents of Karnataka with family income below Rs 2.5 lakh.\n"
            "Photo gallery of the inauguration ceremony held last year in the city.\n"
            "Documents required: caste certificate, income certificate and marks card.\n")
-    out = relevant_passages(raw)
+    out = relevant_passages(raw, "residents family income documents caste certificate")
     assert "permanent residents of Karnataka" in out and "Documents required" in out
     assert "Photo gallery" not in out and "Home | About" not in out
     assert relevant_passages(None) == "" and len(relevant_passages(raw * 200, limit=300)) <= 300

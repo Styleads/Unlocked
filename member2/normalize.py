@@ -67,7 +67,38 @@ Rules:
   return one item per group and add "when": {{"attribute": ..., "operator": ..., "value": ...}}
   naming the group, e.g. {{"attribute": "social_category", "operator": "in", "value": ["SC", "ST"]}}.
 - "extracted" lists rules found in "eligibility_text" (empty if none is given).
+- Every item with a value also gives "value_quote": the exact words of the evidence that
+  state that value, copied verbatim (e.g. the words naming the group, the year or the amount).
+  A "when" also gives its own "quote".
+- Set "restricts": false on a statement that excludes nobody (it is then dropped).
 """
+
+
+CONFIRM_SYSTEM = """You check whether a phrase from an official eligibility rule states a value.
+For each item: does the phrase, read as written in a government eligibility rule, state exactly
+the given value of the given attribute? Answer false if the phrase means something narrower,
+broader or different, or if you are not sure.
+Return only JSON: {"results": {"<id>": true|false}}"""
+
+
+def _confirm_meanings(llm: Any, items: list[tuple[str, str, Any]]) -> list[bool]:
+    """For (attribute label, phrase, value) items, return True where the meaning
+    is REJECTED. One call for all items; any failure rejects every item, so an
+    unconfirmed value can never decide eligibility."""
+    if not items:
+        return []
+    if llm is None:
+        return [True] * len(items)
+    payload = {"items": [{"id": str(i), "attribute": a, "phrase": p, "value": v} for i, (a, p, v) in enumerate(items)]}
+    try:
+        data = _parse(llm.complete_json(CONFIRM_SYSTEM, json.dumps(payload, ensure_ascii=False, default=str)))
+        results = data.get("results")
+        if not isinstance(results, dict):
+            raise ValueError("no results")
+    except Exception as exc:  # noqa: BLE001 - unconfirmed means rejected
+        log.warning("meaning check failed: %s", type(exc).__name__)
+        return [True] * len(items)
+    return [results.get(str(i)) is not True for i in range(len(items))]
 
 
 class _Structured(BaseModel):
@@ -75,7 +106,9 @@ class _Structured(BaseModel):
     attribute: Optional[str] = None
     operator: Optional[str] = None
     value: Any = None
-    when: Optional[dict] = None  # group the rule applies to, e.g. social_category in [SC, ST]
+    when: Optional[dict] = None  # group the rule applies to, e.g. social_category in [SC, ST]; has "quote"
+    value_quote: Optional[str] = None  # exact words in the evidence that state the value
+    restricts: Optional[bool] = None  # False: the statement excludes nobody
 
 
 class _Extracted(BaseModel):
@@ -84,6 +117,8 @@ class _Extracted(BaseModel):
     value: Any = None
     criterion: str = ""
     evidence: str = ""
+    value_quote: Optional[str] = None
+    restricts: Optional[bool] = None
 
 
 # --- helpers ------------------------------------------------------------------
@@ -101,6 +136,9 @@ _SCALE = {"lakh": 1e5, "lakhs": 1e5, "lac": 1e5, "lacs": 1e5, "crore": 1e7, "cro
 
 
 def _numbers_in_text(text: str) -> set[float]:
+    """Digits with Indian units ("2.5 lakh" -> 2.5 and 250000). Number words
+    ("first year") are not parsed here; the model cites them and an independent
+    check confirms the meaning (DECISIONS #66)."""
     found: set[float] = set()
     for raw, unit in _NUM.findall(text or ""):
         try:
@@ -110,29 +148,18 @@ def _numbers_in_text(text: str) -> set[float]:
         found.add(n)
         if unit:
             found.add(n * _SCALE[unit.lower()])
-    # Ordinals and small number words: "first year" states year 1 (DECISIONS #64).
-    for word in re.findall(r"[a-z]+", (text or "").casefold()):
-        if word in _NUMBER_WORDS:
-            found.add(_NUMBER_WORDS[word])
     return found
 
 
-_NUMBER_WORDS = {
-    "first": 1.0, "second": 2.0, "third": 3.0, "fourth": 4.0, "fifth": 5.0,
-    "two": 2.0, "three": 3.0, "four": 4.0, "five": 5.0,
-}
-
-
-def _non_restrictive(attr: str, op: Optional[Operator], value: Any) -> bool:
-    """Statements that exclude nobody ("all courses", "students of all
-    categories") are not rules; kept, they block a scheme for no reason."""
-    if attr.startswith("unmapped:"):
-        name = (value if isinstance(value, str) else attr.split(":", 1)[1]).replace("_", " ").casefold().strip()
-        return name == "all" or name.startswith(("all ", "any ", "every "))
+def _non_restrictive(attr: str, op: Optional[Operator], value: Any, restricts: Optional[bool]) -> bool:
+    """Statements that exclude nobody are not rules; kept, they block a scheme
+    for no reason. The model flags them (restricts=false); independently, a
+    select "in" covering every option of the attribute excludes nobody."""
+    if restricts is False:
+        return True
     spec = ATTRIBUTES.get(attr)
     if spec and spec.input_type == InputType.select and op == Operator.in_ and isinstance(value, list):
-        real = set(spec.options) - {"Other", "None", "Not studying"}
-        return real <= set(value)
+        return set(spec.options) <= set(value)
     return False
 
 
@@ -149,39 +176,42 @@ def _numbers_in_value(value: Any) -> list[float]:
     return out
 
 
-# Words an official text may use for a select option. A structured select value
-# counts as stated only if the option or one of these appears in the evidence.
-_OPTION_WORDS: dict[str, tuple[str, ...]] = {
-    "Female": ("female", "girl", "girls", "women", "woman"),
-    "Male": ("male", "boy", "boys", "men"),
-    "SC": ("sc", "scheduled caste", "scheduled castes", "scheduled cast"),  # "cast": as written on a live gov.in page
-    "ST": ("st", "scheduled tribe", "scheduled tribes"),
-    "OBC": ("obc", "backward class", "backward classes", "other backward"),
-    "General": ("general category", "general merit"),
-    "Undergraduate": ("undergraduate", "ug", "degree", "b.a", "b.sc", "b.com", "b.e", "bachelor"),
-    "Postgraduate": ("postgraduate", "post graduate", "post-graduate", "pg", "master", "m.a", "m.sc", "m.com"),
-    "Class 10": ("class 10", "sslc", "10th"),
-    "Class 12": ("class 12", "puc", "pre-university", "12th", "ii puc"),
-    "Government": ("government",),
-    "Aided": ("aided",),
-    "Private": ("private", "unaided"),
-    "Karnataka": ("karnataka",),
-    "Rural": ("rural", "village"),
-    "Urban": ("urban", "city", "town"),
-    "BPL": ("bpl", "below poverty line"),
-    "APL": ("apl", "above poverty line"),
-}
+def _words(text: str) -> str:
+    return " " + re.sub(r"[^a-z0-9.]+", " ", (text or "").casefold()).strip() + " "
 
 
-def _select_values_supported(value: Any, evidence: Optional[str]) -> bool:
-    """Every select value must be stated in the evidence, as the option or a
-    known synonym, as whole words. Stops "post-matric" becoming "Postgraduate"."""
-    text = " " + re.sub(r"[^a-z0-9.]+", " ", (evidence or "").casefold()) + " "
-    for v in value if isinstance(value, list) else [value]:
-        words = _OPTION_WORDS.get(str(v), (str(v).casefold(),))
-        if not any(f" {re.sub(r'[^a-z0-9.]+', ' ', w).strip()} " in text for w in words):
-            return False
-    return True
+def _phrase_in(evidence: Optional[str], phrase: Optional[str]) -> bool:
+    """The cited phrase appears in the evidence, ignoring case, spacing and punctuation."""
+    p = _words(phrase or "").strip()
+    return bool(p) and f" {p} " in _words(evidence or "")
+
+
+def _literal(option: Any, text: Optional[str]) -> bool:
+    """The option's own words appear in the text as whole words."""
+    o = _words(str(option)).strip()
+    return bool(o) and f" {o} " in _words(text or "")
+
+
+def _value_check(attr: str, op: Optional[Operator], value: Any, quote: Optional[str],
+                 evidence: Optional[str]) -> tuple[bool, list[tuple[str, Any]]]:
+    """Is the value stated in the evidence? Returns (ok_so_far, to_confirm):
+    to_confirm lists (phrase, value) pairs whose meaning an independent model
+    check must confirm, e.g. ("girl students", "Female"), ("first year", 1)."""
+    if op is None or op in (Operator.is_true, Operator.is_false) or value is None:
+        return True, []
+    items = value if isinstance(value, list) else [value]
+    numeric = all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in items)
+    if not quote or not _phrase_in(evidence, quote):
+        # No usable pointer: accept only what the evidence states literally.
+        if numeric:
+            return _numbers_supported(value, evidence), []
+        return all(_literal(v, evidence) for v in items), []
+    if numeric:
+        if _numbers_in_text(quote):
+            return _numbers_supported(value, quote), []
+        return True, [(quote, v) for v in items]  # number written in words
+    pending = [(quote, v) for v in items if not _literal(v, quote)]
+    return True, pending
 
 
 def _unused_thresholds(parts: list[Requirement], evidence: Optional[str]) -> bool:
@@ -332,8 +362,10 @@ def _llm_pass(scheme: SchemeRecord, llm: LLMClient) -> SchemeRecord:
     by_id = {r.id: r for r in targets}
     # One criterion may hold several conditions; each becomes its own rule so
     # none is silently dropped (a dropped condition could yield a false
-    # "Potential match"). Unmappable parts stay as needs_clarification.
+    # "Potential match"). Unmappable parts stay as yes/no own conditions.
     structured: dict[str, list[Requirement]] = {}
+    # (rid, part index, phrase, value) whose meaning a separate check must confirm
+    to_confirm: list[tuple[str, int, str, Any]] = []
     all_ids = {r.id for r in scheme.requirements}
     for item in data.get("structured") or []:
         try:
@@ -347,17 +379,16 @@ def _llm_pass(scheme: SchemeRecord, llm: LLMClient) -> SchemeRecord:
         unmapped_name = s.value if isinstance(s.value, str) and (s.attribute or "").strip().lower() == "unmapped" else None
         attr, op, value = _canonical_rule(unmapped_name or s.attribute, s.operator, s.value,
                                           f"{_slug(req.criterion)}_{len(parts) + 1}" if parts else _slug(req.criterion))
-        if _non_restrictive(attr, op, value if not unmapped_name else unmapped_name):
+        if _non_restrictive(attr, op, value, s.restricts):
             continue
         status = req.status
         reason = None  # why a part is uncertain (DECISIONS #65)
-        # Only a comparable rule carries a threshold; an unmapped part's value is a
-        # name ("meritorious_puc2_list") whose digits are not a threshold.
-        if status == RequirementVerification.verified and op is not None:
-            evidence = req.evidence or req.criterion
-            is_select = is_canonical(attr) and ATTRIBUTES[attr].input_type == InputType.select
-            if not _numbers_supported(value, evidence) or (is_select and not _select_values_supported(value, evidence)):
-                status, reason = RequirementVerification.uncertain, "not_stated"
+        evidence = req.evidence or req.criterion
+        pending: list[tuple[str, Any]] = []
+        if status == RequirementVerification.verified:
+            ok, pending = _value_check(attr, op, value, s.value_quote, evidence)
+            if not ok:
+                status, reason, pending = RequirementVerification.uncertain, "not_stated", []
         new_id = req.id
         if parts:  # second and later conditions get their own stable id
             k = len(parts) + 1
@@ -368,19 +399,30 @@ def _llm_pass(scheme: SchemeRecord, llm: LLMClient) -> SchemeRecord:
         condition = None
         if isinstance(s.when, dict):
             c_attr, c_op, c_value = _canonical_rule(s.when.get("attribute"), s.when.get("operator"), s.when.get("value"), "group")
-            evidence = req.evidence or req.criterion
-            c_select = is_canonical(c_attr) and ATTRIBUTES[c_attr].input_type == InputType.select
-            if (is_canonical(c_attr) and c_op is not None and _numbers_supported(c_value, evidence)
-                    and not (c_select and not _select_values_supported(c_value, evidence))):
+            c_ok, c_pending = (_value_check(c_attr, c_op, c_value, s.when.get("quote"), evidence)
+                               if is_canonical(c_attr) and c_op is not None else (False, []))
+            if c_ok:
                 condition = RuleCondition(attribute=c_attr, operator=c_op, value=c_value)
+                pending += c_pending
             elif status == RequirementVerification.verified:
                 # The group is unreadable or unsupported: the rule must not decide anything.
-                status, reason = RequirementVerification.uncertain, "not_stated"
+                status, reason, pending = RequirementVerification.uncertain, "not_stated", []
         update = {"id": new_id, "attribute": attr, "operator": op, "value": value,
                   "status": status, "condition": condition, LLM_MARK: "structured"}
         if reason:
             update["uncertain_reason"] = reason
+        to_confirm += [(req.id, len(parts), phrase, v) for phrase, v in pending]
         parts.append(req.model_copy(update=update))
+
+    # Meanings the cited words don't state literally ("girl students" = Female,
+    # "first year" = 1) are confirmed by an independent call; unconfirmed -> uncertain.
+    rejected = _confirm_meanings(llm, [(ATTRIBUTES[p_attr].label if (p_attr := structured[rid][i].attribute) in ATTRIBUTES
+                                        else p_attr, phrase, v) for rid, i, phrase, v in to_confirm])
+    for (rid, i, _, _), bad in zip(to_confirm, rejected):
+        part = structured[rid][i]
+        if bad and part.status == RequirementVerification.verified:
+            structured[rid][i] = part.model_copy(update={"status": RequirementVerification.uncertain,
+                                                         "uncertain_reason": "not_stated"})
 
     for rid, parts in structured.items():
         if _unused_thresholds(parts, by_id[rid].evidence or by_id[rid].criterion):
@@ -400,6 +442,8 @@ def _llm_pass(scheme: SchemeRecord, llm: LLMClient) -> SchemeRecord:
         seen = {_squash(r.criterion).casefold() for r in reqs}
         used_ids = {r.id for r in reqs}
         n = len(reqs)
+        extracted: list[Requirement] = []
+        ex_confirm: list[tuple[int, str, Any]] = []
         for item in data.get("extracted") or []:
             try:
                 e = _Extracted.model_validate(item)
@@ -416,24 +460,33 @@ def _llm_pass(scheme: SchemeRecord, llm: LLMClient) -> SchemeRecord:
                 continue
             seen.add(criterion.casefold())
             attr, op, value = _canonical_rule(e.attribute, e.operator, e.value, _slug(criterion))
+            if _non_restrictive(attr, op, value, e.restricts):
+                continue
+            pending: list[tuple[str, Any]] = []
             if not source:
                 status = RequirementVerification.unverified
-            elif _numbers_supported(value, evidence) and not (
-                is_canonical(attr) and ATTRIBUTES[attr].input_type == InputType.select
-                and op is not None and not _select_values_supported(value, evidence)
-            ):
-                status = RequirementVerification.verified
             else:
-                status = RequirementVerification.uncertain
+                ok, pending = _value_check(attr, op, value, e.value_quote, evidence)
+                status = RequirementVerification.verified if ok else RequirementVerification.uncertain
+                if not ok:
+                    pending = []
             extra = {"uncertain_reason": "not_stated"} if status == RequirementVerification.uncertain else {}
             n += 1
             while f"{scheme.id}_req_{n}" in used_ids:
                 n += 1
             used_ids.add(f"{scheme.id}_req_{n}")
-            reqs.append(Requirement(
+            ex_confirm += [(len(extracted), phrase, v) for phrase, v in pending]
+            extracted.append(Requirement(
                 id=f"{scheme.id}_req_{n}", attribute=attr, criterion=criterion, operator=op, value=value,
                 status=status, source_url=source, evidence=evidence, **{LLM_MARK: "extracted"}, **extra,
             ))
+        rejected = _confirm_meanings(llm, [(ATTRIBUTES[extracted[i].attribute].label, phrase, v)
+                                           for i, phrase, v in ex_confirm])
+        for (i, _, _), bad in zip(ex_confirm, rejected):
+            if bad and extracted[i].status == RequirementVerification.verified:
+                extracted[i] = extracted[i].model_copy(update={"status": RequirementVerification.uncertain,
+                                                               "uncertain_reason": "not_stated"})
+        reqs += extracted
 
     return scheme.model_copy(update={"requirements": reqs, "uncertainties": uncertainties})
 

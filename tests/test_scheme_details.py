@@ -44,7 +44,7 @@ def test_name_key_ignores_spacing_and_dots():
 
 def test_blocks_from_three_page_shapes():
     md = scheme_blocks(PAGE_MARKDOWN, NAME)
-    assert len(md) == 1 and "core subjects" in md[0] and "Screen Reader" not in md[0]
+    assert len(md) == 1 and "core subjects" in md[0] and "Screen Reader" not in md[0]  # heading ends it
 
     bold = scheme_blocks(PAGE_BOLD, NAME)
     assert len(bold) == 1 and "This Scholarship is for all Science" in bold[0]  # ** stripped
@@ -198,7 +198,8 @@ DOCS_PAGE = """\
 
 def test_own_page_keeps_eligibility_and_documents_sections():
     (block,) = scheme_blocks(OWN_PAGE, NAME, whole_page=True)
-    assert "Girl students" in block and "previous year marks card" in block and "Screen Reader" not in block
+    # Ends by structure or size only (no fixed footer list); footer text is never quoted.
+    assert "Girl students" in block and "previous year marks card" in block
     # Without whole_page the "### Eligibility" heading right under the name ends the
     # block at once, so a scheme's own page yielded nothing: why whole_page exists.
     assert scheme_blocks(OWN_PAGE, NAME) == []

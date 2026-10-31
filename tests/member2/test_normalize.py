@@ -361,22 +361,6 @@ def test_unmapped_name_with_digits_keeps_status():
 
 # --- select values must be stated -----------------------------------------------
 
-def test_post_matric_is_not_postgraduate():
-    text = "Backward classes pursuing post-matric education in Government institutions are eligible."
-    out = _one_rule(text, [{"id": "r1", "attribute": "education_level", "operator": "eq", "value": "Postgraduate"},
-                           {"id": "r1", "attribute": "social_category", "operator": "in", "value": ["OBC"]},
-                           {"id": "r1", "attribute": "institution_type", "operator": "in", "value": ["Government"]}])
-    assert [r.status for r in out.requirements] == [V.uncertain, V.verified, V.verified]
-
-
-def test_synonyms_count_as_stated():
-    text = "Meritorious girl students from Scheduled Castes in undergraduate degree courses."
-    out = _one_rule(text, [{"id": "r1", "attribute": "gender", "operator": "eq", "value": "Female"},
-                           {"id": "r1", "attribute": "social_category", "operator": "in", "value": ["SC"]},
-                           {"id": "r1", "attribute": "education_level", "operator": "eq", "value": "Undergraduate"}])
-    assert all(r.status == V.verified for r in out.requirements)
-
-
 def test_unstated_extra_option_is_uncertain():
     text = "Students belonging to backward classes are eligible."
     out = _one_rule(text, [{"id": "r1", "attribute": "social_category", "operator": "in", "value": ["OBC", "Other"]}])
@@ -391,11 +375,15 @@ MARKS = "Students passed previous year exam with 65% (General category) and 60% 
 def _marks_scheme(when_general=None, when_scst=None):
     when_general = when_general or {"attribute": "social_category", "operator": "eq", "value": "General"}
     when_scst = when_scst or {"attribute": "social_category", "operator": "in", "value": ["SC", "ST"]}
+    when_general = {**when_general, "quote": when_general.get("quote", "General category")}
+    when_scst = {**when_scst, "quote": when_scst.get("quote", "Scheduled Castes and Scheduled Tribes")}
     s = scheme([Requirement(id="r1", criterion=MARKS, status="verified", source_url=SRC, evidence=MARKS)])
     return normalize_scheme(s, FakeLLM({"structured": [
-        {"id": "r1", "attribute": "previous_year_marks_percent", "operator": "gte", "value": 65, "when": when_general},
-        {"id": "r1", "attribute": "previous_year_marks_percent", "operator": "gte", "value": 60, "when": when_scst},
-    ], "extracted": []}))
+        {"id": "r1", "attribute": "previous_year_marks_percent", "operator": "gte", "value": 65, "when": when_general,
+         "value_quote": "65%"},
+        {"id": "r1", "attribute": "previous_year_marks_percent", "operator": "gte", "value": 60, "when": when_scst,
+         "value_quote": "60%"},
+    ], "extracted": []}, {"results": {"0": True, "1": True}}))  # 2nd call: meaning check for SC, ST
 
 
 def _assess(s, **answers):
@@ -422,9 +410,13 @@ def test_group_rule_applies_only_to_its_group():
 
 
 def test_unstated_group_makes_rule_uncertain():
-    s = _marks_scheme(when_scst={"attribute": "social_category", "operator": "in", "value": ["OBC"]})
-    assert s.requirements[1].status == V.uncertain
-
+    s = scheme([Requirement(id="r1", criterion=MARKS, status="verified", source_url=SRC, evidence=MARKS)])
+    out = normalize_scheme(s, FakeLLM({"structured": [
+        {"id": "r1", "attribute": "previous_year_marks_percent", "operator": "gte", "value": 60, "value_quote": "60%",
+         "when": {"attribute": "social_category", "operator": "in", "value": ["OBC"],
+                  "quote": "Scheduled Castes and Scheduled Tribes"}}], "extracted": []},
+        {"results": {"0": False}}))  # the meaning check rejects "Scheduled Castes" = OBC
+    assert out.requirements[0].status == V.uncertain
 
 def test_category_question_is_asked_for_group_rules():
     from member2 import generate_consolidated_questions
@@ -439,17 +431,6 @@ def test_group_rules_survive_renormalization():
     assert twice.requirements[0].condition.value == "General"
 
 
-def test_misspelt_scheduled_cast_still_counts():
-    text = "Students passed previous year exam with 65% (General category) and 60% (Scheduled cast and Scheduled Tribes)."
-    out = _one_rule(text, [
-        {"id": "r1", "attribute": "previous_year_marks_percent", "operator": "gte", "value": 65,
-         "when": {"attribute": "social_category", "operator": "eq", "value": "General"}},
-        {"id": "r1", "attribute": "previous_year_marks_percent", "operator": "gte", "value": 60,
-         "when": {"attribute": "social_category", "operator": "in", "value": ["SC", "ST"]}}])
-    assert [r.status for r in out.requirements] == [V.verified, V.verified]
-    assert out.requirements[1].condition is not None
-
-
 def test_small_counts_do_not_trigger_limit_warning():
     text = "First year B.Sc. students who have taken at least 2 subjects of the list Physics, Chemistry, Mathematics."
     out = _one_rule(text, [{"id": "r1", "attribute": "year_of_study", "operator": "eq", "value": 1},
@@ -459,23 +440,73 @@ def test_small_counts_do_not_trigger_limit_warning():
 
 # --- number words and non-rules (live findings) -------------------------------
 
-def test_first_year_confirms_year_one():
-    text = "Admitted to the first year of B.Sc. programmes in Government and Aided Colleges."
-    out = _one_rule(text, [{"id": "r1", "attribute": "year_of_study", "operator": "eq", "value": 1}])
-    assert out.requirements[0].status == V.verified
 
 
-def test_statements_that_exclude_nobody_are_dropped():
-    text = "Only girl students belonging to Cat-I, II-A, II-B, III-A, III-B, GM are eligible for this scheme of all courses."
-    out = _one_rule(text, [
-        {"id": "r1", "attribute": "gender", "operator": "eq", "value": "Female"},
-        {"id": "r1", "attribute": "social_category", "operator": "in", "value": ["General", "SC", "ST", "OBC"]},
-        {"id": "r1", "attribute": "unmapped", "operator": None, "value": "all courses"},
-    ])
-    assert [(r.attribute, r.status) for r in out.requirements] == [("gender", V.verified)]
+
+# --- cited values and the independent meaning check (DECISIONS #66) ---------
+
+def _cited(evidence, structured, confirm=None):
+    s = scheme([Requirement(id="r1", criterion=evidence, status="verified", source_url=SRC, evidence=evidence)])
+    llm = FakeLLM({"structured": structured, "extracted": []}, *( [confirm] if confirm is not None else []))
+    return normalize_scheme(s, llm), llm
 
 
-def test_rule_that_is_only_a_non_restriction_disappears():
-    text = "This scholarship is open to students of all courses."
-    out = _one_rule(text, [{"id": "r1", "attribute": "unmapped", "operator": None, "value": "all courses"}])
+def test_literal_value_needs_no_meaning_check():
+    out, llm = _cited("Only Government and Aided colleges are eligible.",
+                      [{"id": "r1", "attribute": "institution_type", "operator": "in", "value": ["Government", "Aided"],
+                        "value_quote": "Government and Aided colleges"}])
+    assert out.requirements[0].status == V.verified and len(llm.calls) == 1
+
+
+def test_paraphrased_value_confirmed_by_second_call():
+    out, llm = _cited("Meritorious girl students admitted to the first year of degree courses.",
+                      [{"id": "r1", "attribute": "gender", "operator": "eq", "value": "Female", "value_quote": "girl students"},
+                       {"id": "r1", "attribute": "year_of_study", "operator": "eq", "value": 1, "value_quote": "first year"}],
+                      {"results": {"0": True, "1": True}})
+    assert [r.status for r in out.requirements] == [V.verified, V.verified]
+    checked = json.loads(llm.calls[1][1])["items"]
+    assert [(i["phrase"], i["value"]) for i in checked] == [("girl students", "Female"), ("first year", 1)]
+
+
+def test_rejected_meaning_makes_rule_uncertain():
+    out, _ = _cited("Backward classes pursuing post-matric education in Government institutions are eligible.",
+                    [{"id": "r1", "attribute": "education_level", "operator": "eq", "value": "Postgraduate",
+                      "value_quote": "post-matric education"}],
+                    {"results": {"0": False}})
+    assert out.requirements[0].status == V.uncertain and out.requirements[0].uncertain_reason == "not_stated"
+
+
+def test_quote_not_in_evidence_falls_back_to_literal_only():
+    out, _ = _cited("Only girl students may apply.",
+                    [{"id": "r1", "attribute": "gender", "operator": "eq", "value": "Female", "value_quote": "women only"}])
+    assert out.requirements[0].status == V.uncertain  # cited words aren't there; "Female" isn't literal
+
+
+def test_failed_meaning_check_rejects():
+    out, _ = _cited("Only girl students may apply.",
+                    [{"id": "r1", "attribute": "gender", "operator": "eq", "value": "Female", "value_quote": "girl students"}],
+                    "not json")
+    assert out.requirements[0].status == V.uncertain
+
+
+def test_digits_in_quote_must_match_value():
+    out, _ = _cited("Annual family income must not exceed Rs 2.5 lakh.",
+                    [{"id": "r1", "attribute": "annual_family_income", "operator": "lte", "value": 300000,
+                      "value_quote": "Rs 2.5 lakh"}])
+    assert out.requirements[0].status == V.uncertain
+
+
+def test_model_flagged_non_restriction_is_dropped():
+    out, _ = _cited("Girl students of all courses are eligible.",
+                    [{"id": "r1", "attribute": "gender", "operator": "eq", "value": "Female", "value_quote": "Girl students"},
+                     {"id": "r1", "attribute": "unmapped", "operator": None, "value": "all courses", "restricts": False}],
+                    {"results": {"0": True}})
+    assert [r.attribute for r in out.requirements] == ["gender"]
+
+
+def test_select_covering_every_option_is_dropped():
+    from member2.attributes import ATTRIBUTES
+    every = ATTRIBUTES["social_category"].options
+    out, _ = _cited("Students of every category are eligible.",
+                    [{"id": "r1", "attribute": "social_category", "operator": "in", "value": every}])
     assert out.requirements == []

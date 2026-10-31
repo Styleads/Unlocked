@@ -28,10 +28,6 @@ MAX_BLOCK_CHARS = 3500       # one scheme block on one page
 OWN_PAGE_CHARS = 6000        # a scheme's own page: eligibility + documents sections
 MAX_SCHEME_CHARS = 12000     # all blocks for one scheme, sent to the model
 
-# Lines that end a scheme block: page furniture common on gov.in sites.
-_BOILERPLATE = re.compile(
-    r"^(screen reader access|disclaimer|website policies|copyright|last updated|visitors?|"
-    r"follow us|related links|important links|quick links|contact us)\b", re.IGNORECASE)
 # Markdown headings, whole-line bold ("**PRIZE MONEY SCHOLARSHIP:**") and short
 # ALL-CAPS lines ending in ":" all start a new section on these sites.
 _HEADING = re.compile(r"^\s*(#{1,6}\s|\*\*[^*]{3,80}\*\*:?\s*$|[A-Z0-9][A-Z0-9 .,&()/'-]{6,80}:\s*$)")
@@ -121,8 +117,6 @@ def scheme_blocks(raw: str, scheme_name: str, max_chars: int = MAX_BLOCK_CHARS, 
         block, size, j = [lines[i][0]], len(lines[i][0]), i + 1
         while j < len(lines):
             text, new_row = lines[j]
-            if _BOILERPLATE.match(re.sub(r"^[#*\s]+", "", text)):  # "#### Screen Reader Access" too
-                break
             if not whole_page and (new_row or (_HEADING.match(text) and key not in _squash(text))):
                 break
             if size + len(text) > max_chars:

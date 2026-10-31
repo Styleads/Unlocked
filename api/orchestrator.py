@@ -72,6 +72,20 @@ logger = logging.getLogger(__name__)
 # View Construction Helper
 # ---------------------------------------------------------------------------
 
+def _normalizer_llm() -> Any:
+    """member2's LLM client when a key is configured, else None (offline: the
+    deterministic normalizer still runs). Never raises."""
+    import os
+
+    if not any(os.getenv(k) for k in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "ANTHROPIC_API_KEY")):
+        return None
+    try:
+        return default_client()
+    except Exception as exc:  # missing SDK or bad config: degrade, don't fail discovery
+        logger.warning("LLM client unavailable for normalization: %s", type(exc).__name__)
+        return None
+
+
 def build_scheme_views(
     schemes: Sequence[SchemeRecord],
     assessments: Sequence[Assessment],
@@ -178,8 +192,11 @@ async def run_discovery(
     # 3. Adapter: Map M1 raw schemas into canonical M2 models
     adapted_schemes = adapt_m1_to_m2_schemes(raw_schemes)
 
-    # 4. Member 2: Normalize requirements once (sets normalized_by marker)
-    normalized_schemes = normalize_requirements(adapted_schemes)
+    # 4. Member 2: Normalize requirements once (sets normalized_by marker).
+    # The LLM is what structures Agent 1's text-only rules (operators, values,
+    # group conditions, compound splits); without it almost every rule stays
+    # "needs clarification".
+    normalized_schemes = normalize_requirements(adapted_schemes, llm=_normalizer_llm())
 
     # 5. Member 2: Preliminary assessment using seeded context answers
     assessments = assess_schemes(normalized_schemes, session.answers)
