@@ -7,60 +7,97 @@ export type Status = "ok" | "info" | "nv" | "unclear" | "warn";
 export type Pip = "ok" | "no" | "unk" | "unv";
 export type SourceType = "verified" | "fallback" | "user-reported" | "simulated";
 
+/** Where a criterion's input comes from: a question on the Questions page, or a field from the Context form. */
+export type CriterionSource = { kind: "question"; id: string } | { kind: "detail"; field: "age" };
+export type CriterionTest = { oneOf: readonly string[] } | { min: number };
+
+export type Criterion = {
+  id: string;
+  /** The published rule, quoted (fictional demo text). */
+  rule: string;
+  /** What we call the missing information when this can't be checked yet. */
+  missing: string;
+  source: CriterionSource;
+  test: CriterionTest;
+};
+
+/** The five income brackets are in QUESTIONS; these are the ones within the ₹2.5 lakh demo limit. */
+const WITHIN_INCOME_LIMIT = ["Under ₹1 lakh", "₹1–2.5 lakh"] as const;
+
 export type Scheme = {
   id: string;
   name: string;
   dept: string;
-  status: Exclude<Status, "unclear">;
   summary: string;
-  expl: string;
-  pips: Pip[];
-  met: number;
-  missing: string[];
+  /** false = the rules couldn't be confirmed from an official source, so they are never evaluated. */
+  verified: boolean;
+  /** Evaluated against the user's saved answers in eligibility.ts; status, counts and text are derived, not stored. */
+  criteria: Criterion[];
   url: string;
   fallback?: boolean;
   sourceType: SourceType;
   lastVerified: string;
 };
 
+const DOMICILE: Criterion = {
+  id: "dom", rule: "Applicant must be a resident of Karnataka.", missing: "Karnataka domicile",
+  source: { kind: "question", id: "dom" }, test: { oneOf: ["Yes"] },
+};
+const INCOME: Criterion = {
+  id: "income", rule: "Annual family income up to ₹2.5 lakh.", missing: "family income",
+  source: { kind: "question", id: "income" }, test: { oneOf: WITHIN_INCOME_LIMIT },
+};
+
 export const SCHEMES: Scheme[] = [
   {
-    id: "c", name: "Demo Merit Award C", dept: "STATE · HIGHER EDUCATION (DEMO)", status: "ok",
+    id: "c", name: "Demo Merit Award C", dept: "STATE · HIGHER EDUCATION (DEMO)", verified: true,
     summary: "Annual award for students with strong Class 12 results.",
-    expl: "Your education level and domicile meet the two criteria we checked.",
-    pips: ["ok", "ok"], met: 2, missing: [], url: "https://example.gov.in/merit-award-c",
-    sourceType: "verified", lastVerified: "Oct 2026",
+    criteria: [
+      { id: "edu", rule: "Must be studying in Class 12 / PUC.", missing: "course level", source: { kind: "question", id: "edu" }, test: { oneOf: ["Class 12 / PUC"] } },
+      DOMICILE,
+    ],
+    url: "https://example.gov.in/merit-award-c", sourceType: "verified", lastVerified: "Oct 2026",
   },
   {
-    id: "a", name: "Demo Scholarship A", dept: "STATE · COLLEGIATE EDUCATION (DEMO)", status: "info",
+    id: "a", name: "Demo Scholarship A", dept: "STATE · COLLEGIATE EDUCATION (DEMO)", verified: true,
     summary: "Scholarship for undergraduates from lower-income families.",
-    expl: "Your course qualifies. We still need your family income to check the income limit.",
-    pips: ["ok", "ok", "unk"], met: 2, missing: ["family income"], url: "https://example.gov.in/scholarship-a",
-    sourceType: "verified", lastVerified: "Oct 2026",
+    criteria: [
+      { id: "edu", rule: "Must be enrolled in an undergraduate degree course.", missing: "course level", source: { kind: "question", id: "edu" }, test: { oneOf: ["Undergraduate"] } },
+      DOMICILE,
+      INCOME,
+    ],
+    url: "https://example.gov.in/scholarship-a", sourceType: "verified", lastVerified: "Oct 2026",
   },
   {
-    id: "b", name: "Demo Fee Concession B", dept: "STATE · TECHNICAL EDUCATION (DEMO)", status: "info",
+    id: "b", name: "Demo Fee Concession B", dept: "STATE · TECHNICAL EDUCATION (DEMO)", verified: true,
     summary: "Partial tuition fee waiver at eligible institutions.",
-    expl: "Depends on your institution type and family income, which you haven't shared yet.",
-    pips: ["ok", "unk", "unk"], met: 1, missing: ["family income", "institution type"], url: "https://example.gov.in/fee-concession-b",
-    sourceType: "verified", lastVerified: "Oct 2026",
+    criteria: [
+      { id: "edu", rule: "Must be enrolled in a diploma or degree course.", missing: "course level", source: { kind: "question", id: "edu" }, test: { oneOf: ["Diploma", "Undergraduate"] } },
+      { id: "inst", rule: "Must study at a government or government-aided institution.", missing: "institution type", source: { kind: "question", id: "inst" }, test: { oneOf: ["Government", "Government-aided"] } },
+      INCOME,
+    ],
+    url: "https://example.gov.in/fee-concession-b", sourceType: "verified", lastVerified: "Oct 2026",
   },
   {
-    id: "d", name: "Demo Housing Aid D", dept: "STATE · SOCIAL WELFARE (DEMO)", status: "nv", fallback: true,
+    id: "d", name: "Demo Housing Aid D", dept: "STATE · SOCIAL WELFARE (DEMO)", verified: false, fallback: true,
     summary: "Rent support for students living away from home.",
-    expl: "We couldn't confirm these rules from an official source yet, so we haven't checked them.",
-    pips: ["unv", "unv", "unv"], met: 0, missing: [], url: "https://example.gov.in/housing-aid-d",
-    sourceType: "fallback", lastVerified: "Unverified lead",
+    criteria: [
+      DOMICILE,
+      { id: "edu", rule: "Must be enrolled in a course.", missing: "course level", source: { kind: "question", id: "edu" }, test: { oneOf: ["Diploma", "Undergraduate", "Postgraduate"] } },
+      { id: "inst", rule: "Must study away from home.", missing: "institution type", source: { kind: "question", id: "inst" }, test: { oneOf: ["Government", "Government-aided", "Private unaided"] } },
+    ],
+    url: "https://example.gov.in/housing-aid-d", sourceType: "fallback", lastVerified: "Unverified lead",
   },
   {
-    id: "e", name: "Demo Pension E", dept: "STATE · REVENUE (DEMO)", status: "warn",
+    id: "e", name: "Demo Pension E", dept: "STATE · REVENUE (DEMO)", verified: true,
     summary: "Monthly pension for older residents.",
-    expl: "Your age appears not to meet the stated minimum age.",
-    pips: ["no", "ok"], met: 1, missing: [], url: "https://example.gov.in/pension-e",
-    sourceType: "verified", lastVerified: "Oct 2026",
+    criteria: [
+      { id: "age", rule: "Applicant must be 60 years or older.", missing: "age", source: { kind: "detail", field: "age" }, test: { min: 60 } },
+      DOMICILE,
+    ],
+    url: "https://example.gov.in/pension-e", sourceType: "verified", lastVerified: "Oct 2026",
   },
 ];
-
 export type Question = {
   id: string;
   text: string;
@@ -97,10 +134,14 @@ export const QUESTIONS: Question[] = [
   },
 ];
 
-/** Income brackets within Demo Scholarship A's ₹2.5 lakh limit. */
-export const INCOME_WITHIN_LIMIT = new Set(["Under ₹1 lakh", "₹1–2.5 lakh"]);
 
 export type DocStatus = "needed" | "have" | "obtained";
+
+/** The user's own report of where an application stands. Only the authority decides the outcome. */
+export type ApplyStage = "todo" | "submitted" | "approved" | "received";
+export const APPLY_STAGES: [ApplyStage, string][] = [
+  ["todo", "Not started"], ["submitted", "Submitted"], ["approved", "Approved"], ["received", "Benefit received"],
+];
 
 export type PlanDoc = {
   id: string;

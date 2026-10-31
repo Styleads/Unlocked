@@ -1,12 +1,13 @@
 import { useState } from "react";
-import { ChevronDown, FileText } from "lucide-react";
+import { ChevronDown, FileText, PartyPopper } from "lucide-react";
 import { Disclaimer, FlowHeader, SourceLink } from "../ui";
 import { useSession } from "../session";
-import { PLAN_DOCS, PLAN_EDGES, PLAN_SCHEME_NODES } from "../data";
+import { PLAN_DOCS } from "../data";
 import type { DocStatus } from "../data";
+import NextSteps from "./NextSteps";
+import DepGraph from "./DepGraph";
 
 const CHOICES: [DocStatus, string][] = [["needed", "Needed"], ["have", "I have it"], ["obtained", "Obtained"]];
-const DOC_TOPS = [2, 62, 122, 182, 242];
 
 export default function Plan() {
   const { session, update } = useSession();
@@ -15,9 +16,13 @@ export default function Plan() {
   const isReady = (id: string) => st[id] === "have" || st[id] === "obtained";
   const setSt = (id: string, v: DocStatus) => update((s) => ({ docStatus: { ...s.docStatus, [id]: v } }));
   const ready = PLAN_DOCS.filter((d) => isReady(d.id)).length;
-
-  const litSchemes = new Set(PLAN_EDGES.filter((e) => e.doc === hover).map((e) => e.scheme));
-  const edgeCls = (doc: string) => (!hover ? (doc === "income" ? "edge sh" : "edge") : doc === hover ? "edge on" : "edge dim");
+  const allReady = ready === PLAN_DOCS.length;
+  // The next document to get: not ready yet, and not waiting on one that isn't ready.
+  const nextDoc = PLAN_DOCS.find((d) => {
+    if (isReady(d.id)) return false;
+    const pre = d.after ? PLAN_DOCS.find((p) => p.name === d.after) : undefined;
+    return !pre || isReady(pre.id);
+  });
 
   return (
     <div className="page">
@@ -32,7 +37,7 @@ export default function Plan() {
             </p>
           </div>
           <div className="stack rise d2" style={{ minWidth: 260, gap: 10 }}>
-            <span className="serif" style={{ fontSize: 36, lineHeight: 1 }}>
+            <span className="serif" style={{ fontSize: 29, lineHeight: 1 }}>
               {ready} <span style={{ color: "var(--faintest)" }}>of {PLAN_DOCS.length} ready</span>
             </span>
             <div style={{ display: "flex", gap: 4 }} aria-hidden>
@@ -42,81 +47,58 @@ export default function Plan() {
         </div>
 
         <div className="rise d3" style={{ display: "flex", alignItems: "center", gap: 16, padding: "18px 20px", borderRadius: 22, background: "var(--primary)", color: "var(--on-accent)", flexWrap: "wrap", boxShadow: "var(--shadow-sm)" }}>
-          <span className="callout-icon" style={{ width: 42, height: 42 }}><FileText size={18} aria-hidden /></span>
+          <span className="callout-icon" style={{ width: 42, height: 42 }}>{allReady ? <PartyPopper size={18} aria-hidden /> : <FileText size={18} aria-hidden />}</span>
           <span style={{ flex: "1 1 300px", fontSize: 17 }}>
-            <strong style={{ fontWeight: 600 }}>Get your Income Certificate first.</strong> It's needed for 2 schemes: Demo Scholarship A and Demo Fee Concession B.
+            {allReady ? (
+              <><strong style={{ fontWeight: 600 }}>All your documents are ready.</strong> You can apply for each scheme on its official page.</>
+            ) : nextDoc ? (
+              <><strong style={{ fontWeight: 600 }}>Get your {nextDoc.name} next.</strong> It's needed for {nextDoc.for.length} {nextDoc.for.length === 1 ? "scheme" : "schemes"}: {nextDoc.for.join(" and ")}.</>
+            ) : (
+              <><strong style={{ fontWeight: 600 }}>Finish the documents marked "Needed".</strong> Some wait on another document first.</>
+            )}
           </span>
+          <a className="btn-ghost" href="#next" style={{ background: "var(--surface)", color: "var(--text)" }}>{allReady ? "Start applying" : "Jump to next steps"}</a>
         </div>
-
         <div style={{ display: "flex", flexWrap: "wrap", gap: 24, alignItems: "flex-start" }}>
-          <ol className="stack" style={{ flex: "999 1 520px", minWidth: 0, margin: 0, padding: 0, listStyle: "none", gap: 12 }}>
+          <ol style={{ flex: "999 1 520px", minWidth: 0, margin: 0, padding: 0, listStyle: "none", display: "grid", gridAutoRows: "1fr", gap: 10 }}>
             {PLAN_DOCS.map((d, i) => {
               const cur = st[d.id] ?? "needed";
               const r = isReady(d.id);
               return (
                 <li key={d.id} className={`item rise d${i + 3} ${r ? "ready" : ""}`} onMouseEnter={() => setHover(d.id)} onMouseLeave={() => setHover(null)}>
                   <span className={r ? "num ready" : "num"}>{String(i + 1).padStart(2, "0")}</span>
-                  <div className="stack" style={{ flex: 1, minWidth: 0, gap: 10 }}>
+                  <div className="item-main">
                     <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                      <h2 className="serif" style={{ fontSize: 28, lineHeight: 1.05 }}>{d.name}</h2>
+                      <h2 className="serif" style={{ fontSize: 21, lineHeight: 1.05 }}>{d.name}</h2>
                       {d.shared && <span className="shared">SHARED</span>}
                     </div>
-                    <p style={{ fontSize: 15, color: "var(--muted)" }}>{d.reason}</p>
-                    <div className="stack" style={{ gap: 2, fontSize: 14 }}>
-                      <span><span style={{ color: "var(--faint)" }}>Needed for:</span> {d.for.join(", ")}</span>
-                      {d.after && <span style={{ color: "var(--secondary-dark)", fontWeight: 500 }}><span style={{ color: "var(--faint)" }}>Get after:</span> {d.after}</span>}
-                    </div>
-                    <div className="row-between" style={{ gap: 12 }}>
+                    <p style={{ fontSize: 14, color: "var(--muted)" }}>{d.reason}</p>
+                    <div className="item-meta">
+                      <span className="item-label">FOR</span>
+                      {d.for.map((s) => <span key={s} className="for-chip">{s}</span>)}
+                      {d.after && <span className="after-chip">after {d.after}</span>}
                       <SourceLink href={d.url}>Official source</SourceLink>
-                      <div className="segc" role="group" aria-label={`Status of ${d.name}`}>
-                        {CHOICES.map(([v, label]) => (
-                          <button key={v} className={cur === v ? (v === "needed" ? "on" : "on lime") : ""} aria-pressed={cur === v} onClick={() => setSt(d.id, v)}>
-                            {label}
-                          </button>
-                        ))}
-                      </div>
                     </div>
+                  </div>
+                  <div className="segc item-seg" role="group" aria-label={`Status of ${d.name}`}>
+                    {CHOICES.map(([v, label]) => (
+                      <button key={v} className={cur === v ? (v === "needed" ? "on" : "on lime") : ""} aria-pressed={cur === v} onClick={() => setSt(d.id, v)}>
+                        {label}
+                      </button>
+                    ))}
                   </div>
                 </li>
               );
             })}
           </ol>
 
-          <aside className="stack rise d4" style={{ flex: "0 1 548px", minWidth: 0, gap: 12 }}>
+          <aside className="stack rise d4 plan-aside" style={{ flex: "0 1 520px", minWidth: 0, gap: 12 }}>
             <div className="card stack" style={{ padding: 24, gap: 18 }}>
               <div className="row-between" style={{ gap: 12 }}>
                 <span style={{ fontSize: 16, fontWeight: 600 }}>What each document unlocks</span>
-                <span className="mono" style={{ fontSize: 12, color: "var(--faint)" }}>HOVER A DOCUMENT</span>
+                <span className="mono" style={{ fontSize: 11, color: "var(--faint)" }}>HOVER · CLICK A SCHEME</span>
               </div>
-              <div className="mono" style={{ display: "flex", justifyContent: "space-between", fontSize: 11, letterSpacing: ".06em", color: "var(--faint)", maxWidth: 500 }}>
-                <span style={{ paddingLeft: 24 }}>DOCUMENTS</span>
-                <span style={{ paddingRight: 110 }}>SCHEMES</span>
-              </div>
-              <div style={{ overflowX: "auto" }}>
-                <div style={{ position: "relative", width: 500, height: 290 }}>
-                  <svg width="500" height="290" viewBox="0 0 500 290" aria-hidden style={{ position: "absolute", inset: 0 }}>
-                    {PLAN_EDGES.map((e) => <path key={e.d} className={edgeCls(e.doc)} d={e.d} />)}
-                    <path className="dep" d="M24 84 C4 84 4 144 24 144" />
-                  </svg>
-                  {PLAN_DOCS.map((d, i) => (
-                    <div
-                      key={d.id}
-                      className={`node doc${hover ? (hover === d.id ? " on" : " dim") : d.shared ? " sh" : ""}`}
-                      style={{ left: 24, top: DOC_TOPS[i] }}
-                      onMouseEnter={() => setHover(d.id)}
-                      onMouseLeave={() => setHover(null)}
-                    >
-                      <span className={isReady(d.id) ? "ndot ready" : "ndot"} />
-                      {d.name}
-                    </div>
-                  ))}
-                  {PLAN_SCHEME_NODES.map((n) => (
-                    <div key={n.id} className={`node sch${hover ? (litSchemes.has(n.id) ? " on" : " dim") : ""}`} style={{ left: 330, top: n.top }}>
-                      {n.label}
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <DepGraph isReady={isReady} hover={hover} setHover={setHover} />
               <div style={{ display: "flex", gap: 18, flexWrap: "wrap", fontSize: 13, color: "var(--muted)", paddingTop: 12, borderTop: "1px solid var(--line-2)" }}>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><i style={{ width: 18, height: 2, background: "var(--primary)" }} />Shared document</span>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><i style={{ width: 18, height: 0, borderTop: "2px dashed var(--secondary-dark)" }} />Get after</span>
@@ -133,6 +115,8 @@ export default function Plan() {
             </details>
           </aside>
         </div>
+
+        <NextSteps />
       </main>
       <Disclaimer />
     </div>

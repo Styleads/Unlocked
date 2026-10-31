@@ -2,6 +2,9 @@ import { ChartColumn, FileText } from "lucide-react";
 import { Brand, Disclaimer, PrimaryLink, StatusBadge, ThemeSwitcher } from "../ui";
 import { Link } from "../router";
 import type { Status } from "../data";
+import { useScrollFade } from "../useScrollFade";
+import { DotField } from "../DotField";
+import { useStaggerIn } from "../useStaggerIn";
 
 const EXAMPLE_BARS = [
   { id: "C", pct: 100, color: "var(--primary)", label: "2/2" },
@@ -34,10 +37,12 @@ const PRIVACY = [
 const wrap = { maxWidth: 1280, margin: "0 auto" } as const;
 
 export default function Landing() {
+  useScrollFade();
+  useStaggerIn(".label-grid", ".label-card");
   return (
     <div className="page">
       <header className="site-header" style={{ padding: "18px var(--gutter)" }}>
-        <Brand size={28} />
+        <Brand size={22} />
         <nav aria-label="Main" style={{ display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap" }}>
           <a className="nav-a" href="#how">How it works</a>
           <a className="nav-a" href="#labels">What the labels mean</a>
@@ -47,16 +52,16 @@ export default function Landing() {
         </nav>
       </header>
 
-      <section className="hero">
+      <section className="hero" data-scroll-fade>
         <div className="stack" style={{ gap: 28 }}>
           <span className="eyebrow rise" style={{ letterSpacing: ".04em", display: "flex", alignItems: "center", gap: 10 }}>
             <span className="live-dot" />_ Government benefits · Karnataka
           </span>
           <h1 className="serif rise d1">
-            Find the schemes you <em className="underline">may qualify</em> for, and the paperwork to claim them.
+            Find the schemes you <em className="underline">may qualify</em> for.
           </h1>
-          <p className="rise d2" style={{ maxWidth: 520, fontSize: 18, color: "var(--muted)", textWrap: "pretty" }}>
-            Unlocked reads the official eligibility rules, asks only what it needs, and turns the result into a document plan you can act on this week.
+          <p className="rise d2" style={{ maxWidth: 480, fontSize: 16, color: "var(--muted)", textWrap: "pretty" }}>
+            Discover government schemes you may qualify for, understand their eligibility requirements, and get a clear checklist of documents needed to apply.
           </p>
           <div className="rise d3" style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
             <PrimaryLink to="/start">Get started</PrimaryLink>
@@ -78,7 +83,7 @@ export default function Landing() {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 14 }}>
             {EXAMPLE_BARS.map((b, i) => (
               <div key={b.id} style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "center" }}>
-                <div className="track hatch">
+                <div className="track fluid">
                   <div className="fill" style={{ height: `${b.pct}%`, background: b.color, animationDelay: `${0.5 + i * 0.12}s` }} />
                   <span className="bub">{b.label}</span>
                 </div>
@@ -100,19 +105,27 @@ export default function Landing() {
         </div>
       </section>
 
-      <section id="how" className="how">
+      <section id="how" className="how" data-scroll-fade>
+        <DotField />
         <div style={{ ...wrap, padding: "96px var(--gutter)", display: "flex", flexDirection: "column", gap: 56 }}>
           <div className="row-between" style={{ alignItems: "flex-end", gap: 24 }}>
-            <h2 className="serif" style={{ fontSize: "clamp(40px, 4.6vw, 64px)", lineHeight: 1, maxWidth: 720, textWrap: "balance" }}>
+            <h2 className="serif" style={{ fontSize: "clamp(30px, 3.4vw, 46px)", lineHeight: 1, maxWidth: 720, textWrap: "balance" }}>
               Three steps. Forms, not a chat window.
             </h2>
             <span className="mono" style={{ fontSize: 13, color: "var(--faint)" }}>_ How it works</span>
           </div>
           <div className="how-grid">
-            {STEPS.map((s) => (
+            {STEPS.map((s, idx) => (
               <div key={s.n} className="how-card">
-                <span className="mono" style={{ fontSize: 13, color: "var(--primary-dark)", fontWeight: 600 }}>{s.n}</span>
-                <h3 className="serif" style={{ fontSize: 32, lineHeight: 1.05 }}>{s.title}</h3>
+                <div className="how-head">
+                  <span className="mono" style={{ fontSize: 13, color: "var(--primary-dark)", fontWeight: 600 }}>{s.n}</span>
+                  <span className="dots" aria-hidden>
+                    {[0, 1, 2].map((d) => (
+                      <i key={d} className={d <= idx ? "on" : undefined} style={{ ["--i" as string]: d }} />
+                    ))}
+                  </span>
+                </div>
+                <h3 className="serif" style={{ fontSize: 26, lineHeight: 1.05 }}>{s.title}</h3>
                 <p style={{ fontSize: 16, color: "var(--text-2)", maxWidth: 340 }}>{s.body}</p>
               </div>
             ))}
@@ -120,30 +133,33 @@ export default function Landing() {
         </div>
       </section>
 
-      <section id="labels" style={{ ...wrap, padding: "112px var(--gutter)", display: "flex", flexDirection: "column", gap: 48 }}>
+      <section id="labels" className="dots-bg" data-scroll-fade>
+        <DotField />
+        <div style={{ ...wrap, padding: "112px var(--gutter)", display: "flex", flexDirection: "column", gap: 48 }}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(420px, 100%), 1fr))", gap: 32, alignItems: "end" }}>
-          <h2 className="serif" style={{ fontSize: "clamp(40px, 4.6vw, 64px)", lineHeight: 1 }}>
-            Five labels. <em style={{ color: "var(--primary-dark)" }}>No verdicts.</em>
+          <h2 className="serif" style={{ fontSize: "clamp(30px, 3.4vw, 46px)", lineHeight: 1 }}>
+            Five labels. <em style={{ color: "var(--primary-dark)", fontStyle: "normal" }}>No verdicts.</em>
           </h2>
           <p className="lede" style={{ maxWidth: 520 }}>
             Unlocked never tells you you're eligible. It tells you how your answers line up with the official rules. The authorities make the decision.
           </p>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(220px, 100%), 1fr))", gap: 14 }}>
+        <div className="label-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(220px, 100%), 1fr))", gap: 14 }}>
           {LABELS.map((l) => (
-            <div key={l.status} className="label-card">
+            <div key={l.status} className="label-card" data-status={l.status}>
               <StatusBadge status={l.status} className="" />
               <p style={{ fontSize: 15, color: "var(--muted)" }}>{l.text}</p>
             </div>
           ))}
         </div>
+        </div>
       </section>
 
-      <section id="privacy" style={{ borderTop: "1px solid var(--line)" }}>
+      <section id="privacy" data-scroll-fade style={{ borderTop: "1px solid var(--line)" }}>
         <div style={{ ...wrap, padding: "96px var(--gutter)", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(420px, 100%), 1fr))", gap: 48 }}>
           <div className="stack" style={{ gap: 18 }}>
             <span className="eyebrow">_ Privacy</span>
-            <h2 className="serif" style={{ fontSize: "clamp(36px, 4vw, 56px)", lineHeight: 1.02 }}>Your answers stay in this session.</h2>
+            <h2 className="serif" style={{ fontSize: "clamp(28px, 3vw, 40px)", lineHeight: 1.02 }}>Your answers stay in this session.</h2>
             <p style={{ fontSize: 15, color: "var(--muted)", maxWidth: 440 }}>
               No permanent profile or Aadhaar required. You can completely wipe every trace of your answers at any point.
             </p>
@@ -152,16 +168,17 @@ export default function Landing() {
             {PRIVACY.map((p, i) => (
               <div key={p} className="numbered">
                 <span className="mono" style={{ fontSize: 13, color: "var(--primary-dark)", fontWeight: 600 }}>{String(i + 1).padStart(2, "0")}</span>
-                <p style={{ fontSize: 17 }}>{p}</p>
+                <p style={{ fontSize: 15 }}>{p}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      <section style={{ ...wrap, padding: "0 var(--gutter) 96px" }}>
-        <div className="hatch row-between" style={{ borderRadius: 32, padding: "clamp(36px, 6vw, 72px)", gap: 32, border: "1px solid var(--line-2)" }}>
-          <h2 className="serif" style={{ fontSize: "clamp(40px, 5vw, 72px)", lineHeight: 1, maxWidth: 680 }}>See what's open to you.</h2>
+      <section data-scroll-fade style={{ ...wrap, padding: "0 var(--gutter) 96px" }}>
+        <div className="cta-box dots-bg row-between" style={{ borderRadius: 32, padding: "clamp(36px, 6vw, 72px)", gap: 32, border: "1px solid var(--line-2)" }}>
+          <DotField gap={30} lift={6} />
+          <h2 className="serif" style={{ fontSize: "clamp(30px, 3.6vw, 52px)", lineHeight: 1, maxWidth: 680 }}>See what's open to you.</h2>
           <PrimaryLink to="/start">Get started</PrimaryLink>
         </div>
       </section>

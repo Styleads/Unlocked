@@ -8,12 +8,13 @@ import {
   CircleHelp,
   CircleX,
   LockKeyholeOpen,
+  MapPin,
   RotateCcw,
+  ShieldCheck,
   ShieldQuestion,
   SquareArrowOutUpRight,
   Sun,
   Moon,
-  Sparkles,
 } from "lucide-react";
 import { Link, useRouter } from "./router";
 import type { Route } from "./router";
@@ -63,21 +64,12 @@ export function ThemeSwitcher() {
     <div className="theme-select" role="group" aria-label="Theme selection">
       <button
         type="button"
-        className={`theme-btn ${session.theme === "light" ? "on" : ""}`}
-        onClick={() => setTheme("light")}
-        title="Light Theme (Lavender & Cyan)"
-      >
-        <Sparkles size={13} aria-hidden />
-        Light
-      </button>
-      <button
-        type="button"
         className={`theme-btn ${session.theme === "sage" ? "on" : ""}`}
         onClick={() => setTheme("sage")}
-        title="Sage Theme (Soft Green)"
+        title="Light Theme (Soft Green)"
       >
         <Sun size={13} aria-hidden />
-        Sage
+        Light
       </button>
       <button
         type="button"
@@ -126,7 +118,7 @@ export function OutcomeSourceBadge({ type = "verified", label }: { type?: "verif
 
 /* ---------- Header ---------- */
 
-export function Brand({ size = 26 }: { size?: number }) {
+export function Brand({ size = 21 }: { size?: number }) {
   return (
     <Link to="/" className="brand">
       <span className="brand-mark">
@@ -227,10 +219,14 @@ export function Disclaimer({ demo }: { demo?: boolean }) {
   return (
     <footer className="site-footer">
       <div>
-        <span>
-          <strong style={{ fontWeight: 600 }}>Assessment, not an official decision.</strong> Unlocked provides automated guidance; government authorities decide eligibility.
-        </span>
-        {demo && <span className="mono" style={{ fontSize: 12 }}>Demo build · official Karnataka criteria</span>}
+        <p className="foot-note">
+          <ShieldCheck size={15} aria-hidden />
+          <span><strong>Assessment, not an official decision.</strong> Unlocked provides automated guidance; government authorities decide eligibility.</span>
+        </p>
+        <p className="foot-meta">
+          <span>© {new Date().getFullYear()} Unlocked{demo ? " · Demo build" : ""}</span>
+          <span className="foot-loc"><MapPin size={13} aria-hidden />Based on official Karnataka criteria</span>
+        </p>
       </div>
     </footer>
   );

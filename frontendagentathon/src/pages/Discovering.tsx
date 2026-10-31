@@ -84,18 +84,22 @@ export default function Discovering() {
             <div className="bar" role="progressbar" aria-label="Discovery progress" aria-valuemin={0} aria-valuemax={3} aria-valuenow={phase}>
               <i style={{ width: `${Math.round((phase / 3) * 100)}%` }} />
             </div>
-            {done && (
-              <div className="pop row-between" style={{ padding: 20, borderRadius: 22, background: "var(--surface)", border: "1px solid var(--line-3)", boxShadow: "var(--shadow-sm)" }}>
-                <div className="stack" style={{ gap: 2 }}>
-                  <span style={{ fontSize: 17, fontWeight: 600 }}>Found {SCHEMES.length} schemes.</span>
-                  <span style={{ fontSize: 15, color: "var(--muted)" }}>A few questions will sharpen the results.</span>
-                </div>
-                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  <button className="btn-ghost" onClick={run}>Replay</button>
-                  <PrimaryLink to="/questions">Continue</PrimaryLink>
-                </div>
+            {/* Always laid out, only hidden until done: the column keeps one height, so the vertically
+                centred document card on the right never moves when the result appears. */}
+            <div
+              className={done ? "pop row-between" : "row-between"}
+              aria-hidden={!done}
+              style={{ padding: 20, borderRadius: 22, background: "var(--surface)", border: "1px solid var(--line-3)", boxShadow: "var(--shadow-sm)", visibility: done ? "visible" : "hidden" }}
+            >
+              <div className="stack" style={{ gap: 2 }}>
+                <span style={{ fontSize: 17, fontWeight: 600 }}>{SCHEMES.length} potential schemes identified.</span>
+                <span style={{ fontSize: 15, color: "var(--muted)" }}>Answer a few questions to narrow down your matches and check your eligibility.</span>
               </div>
-            )}
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <button className="btn-ghost" onClick={run}>Replay</button>
+                <PrimaryLink to="/questions">Continue</PrimaryLink>
+              </div>
+            </div>
           </div>
         )}
 
@@ -108,16 +112,12 @@ export default function Discovering() {
 /** Abstract official notice being "read"; criteria light up as the phases complete. */
 function SourceDoc({ phase, scanning }: { phase: number; scanning: boolean }) {
   const Line = ({ w, hatch }: { w: string; hatch?: boolean }) => <div className={hatch ? "doc-line hatch" : "doc-line"} style={{ width: w }} />;
-  const Hit = ({ on, w, flag }: { on: boolean; w: string; flag: string }) => (
-    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-      {on ? (
-        <>
-          <div className="hl" style={{ width: w }} />
-          <span className="flag">{flag}</span>
-        </>
-      ) : (
-        <Line w={w} />
-      )}
+  // Both the line and its label are always in the DOM, so identification is a CSS transition (no layout shift).
+  // `delay` only staggers clauses that the same phase identifies; the trigger is still the real phase state.
+  const Hit = ({ on, w, flag, delay = 0 }: { on: boolean; w: string; flag: string; delay?: number }) => (
+    <div className={on ? "hit on" : "hit"} style={{ ["--hit-delay" as string]: `${delay}s` }}>
+      <div className="hit-line" style={{ width: w }} />
+      <span className="hit-flag">{flag}</span>
     </div>
   );
 
@@ -125,7 +125,6 @@ function SourceDoc({ phase, scanning }: { phase: number; scanning: boolean }) {
     <div className="card rise d2" aria-hidden style={{ position: "relative", borderRadius: 30, padding: 28, overflow: "hidden", minHeight: 420 }}>
       <div className="row-between" style={{ marginBottom: 26 }}>
         <span className="mono" style={{ fontSize: 12, color: "var(--faint)" }}>example.gov.in / scheme-notice.pdf</span>
-        <span className="mono" style={{ fontSize: 11, padding: "4px 9px", borderRadius: 999, color: "var(--muted)", background: "var(--surface-sunk)" }}>p. 2</span>
       </div>
       <div className="stack" style={{ gap: 16 }}>
         <div className="doc-line" style={{ width: "58%", height: 14, background: "var(--line-3)" }} />
@@ -134,14 +133,14 @@ function SourceDoc({ phase, scanning }: { phase: number; scanning: boolean }) {
         <Hit on={phase >= 2} w="64%" flag="COURSE LEVEL" />
         <Line w="78%" />
         <Line w="90%" hatch />
-        <Hit on={phase >= 2} w="52%" flag="INCOME LIMIT" />
+        <Hit on={phase >= 2} w="52%" flag="INCOME LIMIT" delay={0.5} />
         <Line w="84%" />
         <Line w="70%" />
         <Hit on={phase >= 3} w="40%" flag="DOMICILE" />
         <Line w="88%" />
         <Line w="62%" hatch />
       </div>
-      {scanning && <div className="scan" />}
+      <div className={scanning ? "scan" : "scan off"} />
     </div>
   );
 }

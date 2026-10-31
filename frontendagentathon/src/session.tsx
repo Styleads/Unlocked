@@ -1,8 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import type { Category, DocStatus } from "./data";
+import type { ApplyStage, Category, DocStatus } from "./data";
 
-export type Theme = "light" | "sage" | "dark";
+export type Theme = "sage" | "dark";
 
 export type Details = { state: string; district: string; age: string; edu: string; need: string };
 
@@ -16,27 +16,58 @@ export type Session = {
   details: Details;
   answers: Record<string, Answer | undefined>;
   docStatus: Record<string, DocStatus>;
+  /** Per-scheme application progress, as reported by the user. */
+  apply: Record<string, ApplyStage>;
 };
 
 const getStoredTheme = (): Theme => {
   if (typeof window !== "undefined") {
     const params = new URLSearchParams(window.location.search);
     const paramTheme = params.get("theme") as Theme | null;
-    if (paramTheme === "light" || paramTheme === "sage" || paramTheme === "dark") return paramTheme;
+    if (paramTheme === "sage" || paramTheme === "dark") return paramTheme;
+    // A previously saved "light" falls through to dark: that theme was removed.
     const t = localStorage.getItem("unlocked_theme") as Theme | null;
-    if (t === "light" || t === "sage" || t === "dark") return t;
+    if (t === "sage" || t === "dark") return t;
   }
-  return "light";
+  return "dark";
 };
 
-const initialSession = (): Session => ({
-  theme: getStoredTheme(),
+const defaults = (): Omit<Session, "theme"> => ({
   scope: "guided",
   categories: { Scholarships: true, "Fee concessions": true, Healthcare: false, Pensions: false, Subsidies: false },
   details: { state: "Karnataka", district: "", age: "", edu: "", need: "" },
   answers: {},
   docStatus: { admission: "have" },
+  apply: {},
 });
+
+// Per-tab storage: a refresh keeps the user's answers, closing the tab (or "Start over") drops them.
+const STORE_KEY = "unlocked_session_v1";
+
+const loadSaved = (): Partial<Omit<Session, "theme">> => {
+  try {
+    const raw = sessionStorage.getItem(STORE_KEY);
+    const saved = raw ? JSON.parse(raw) : null;
+    return saved && typeof saved === "object" ? saved : {};
+  } catch {
+    return {};
+  }
+};
+
+const initialSession = (): Session => {
+  const base = defaults();
+  const saved = loadSaved();
+  // Merge field by field so a stale or partial saved object can never remove a field the app expects.
+  return {
+    theme: getStoredTheme(),
+    scope: saved.scope === "all" ? "all" : "guided",
+    categories: { ...base.categories, ...(saved.categories ?? {}) },
+    details: { ...base.details, ...(saved.details ?? {}) },
+    answers: { ...(saved.answers ?? {}) },
+    docStatus: { ...base.docStatus, ...(saved.docStatus ?? {}) },
+    apply: { ...(saved.apply ?? {}) },
+  };
+};
 
 type SessionApi = {
   session: Session;
@@ -56,6 +87,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     localStorage.setItem("unlocked_theme", session.theme);
   }, [session.theme]);
 
+  useEffect(() => {
+    const { theme: _theme, ...rest } = session; // the theme has its own key
+    try {
+      sessionStorage.setItem(STORE_KEY, JSON.stringify(rest));
+    } catch {
+      /* storage blocked: answers then live in memory only */
+    }
+  }, [session]);
+
   const update = useCallback<SessionApi["update"]>((patch) => {
     setSession((s) => ({ ...s, ...(typeof patch === "function" ? patch(s) : patch) }));
   }, []);
@@ -65,7 +105,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const reset = useCallback(() => {
-    setSession((prev) => ({ ...initialSession(), theme: prev.theme }));
+    try { sessionStorage.removeItem(STORE_KEY); } catch { /* nothing saved to clear */ }
+    setSession((prev) => ({ theme: prev.theme, ...defaults() }));
   }, []);
 
   return <SessionContext.Provider value={{ session, update, reset, setTheme }}>{children}</SessionContext.Provider>;

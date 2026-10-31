@@ -24,16 +24,21 @@ export default function Start() {
               <span className={guided ? "dot on" : "dot"}><i /></span>
             </button>
             <div className="stack" style={{ gap: 12, paddingTop: 24, borderTop: "1px solid var(--line-2)" }}>
-              <span id="cat-l" style={{ fontSize: 14, color: "var(--muted)", fontWeight: 500 }}>Categories</span>
+              <span id="cat-l" style={{ fontSize: 14, color: "var(--muted)", fontWeight: 500 }}>
+                {guided ? "Categories" : "Categories (not used while searching everything)"}
+              </span>
               <div role="group" aria-labelledby="cat-l" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 {CATEGORIES.map((c) => {
-                  const on = session.categories[c];
+                  // The saved choice is kept while "Discover all" is active, but only shown as selected in Guided mode.
+                  const saved = session.categories[c];
+                  const on = guided && saved;
                   return (
                     <button
                       key={c}
                       className={on ? "chip on" : "chip"}
                       aria-pressed={on}
-                      onClick={() => update((s) => ({ scope: "guided", categories: { ...s.categories, [c]: !on } }))}
+                      disabled={!guided}
+                      onClick={() => update((s) => ({ categories: { ...s.categories, [c]: !saved } }))}
                     >
                       {on && <Check size={14} strokeWidth={2.6} aria-hidden />}
                       {c}
@@ -46,16 +51,24 @@ export default function Start() {
 
           <div className={guided ? "scope" : "scope on"}>
             <button className="pick" aria-pressed={!guided} onClick={() => update({ scope: "all" })}>
-              <ScopeText tag="B · BROADER" title="Discover all" body="Check every category at once. Takes a little longer, misses less." />
+              <ScopeText tag="B · BROADER" title="Discover all" body="Explore all five categories." />
               <span className={guided ? "dot" : "dot on"}><i /></span>
             </button>
-            <div className="hatch" aria-hidden style={{ position: "relative", height: 150, borderRadius: 20, overflow: "hidden", display: "grid", placeItems: "center", border: "1px solid var(--line-2)" }}>
+            <div className="radar" aria-hidden>
+              <span className="radar-glow" />
               <span className="ring-ping" />
               <span className="ring-ping r2" />
               <span className="ring-ping r3" />
-              <span className="mono" style={{ position: "relative", fontSize: 12, letterSpacing: ".06em", background: "var(--surface)", padding: "8px 14px", borderRadius: 999, color: "var(--primary-dark)", border: "1px solid var(--line-3)", fontWeight: 600 }}>
-                ALL {CATEGORIES.length} CATEGORIES
+              <span className="radar-orb">
+                {/* A magnifier with a keyhole in the lens: searching, and unlocking. */}
+                <svg width="34" height="34" viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="14" cy="14" r="8.5" />
+                  <path d="M20.5 20.5 27 27" />
+                  <circle cx="14" cy="12.5" r="2" />
+                  <path d="M14 14.5v4" />
+                </svg>
               </span>
+              <span className="radar-label">SCANNING ALL {CATEGORIES.length} CATEGORIES</span>
             </div>
           </div>
         </div>
@@ -79,7 +92,7 @@ function ScopeText({ tag, title, body }: { tag: string; title: string; body: str
   return (
     <span className="stack" style={{ gap: 10 }}>
       <span className="label">{tag}</span>
-      <span className="serif" style={{ fontSize: 40, lineHeight: 1 }}>{title}</span>
+      <span className="serif" style={{ fontSize: 32, lineHeight: 1 }}>{title}</span>
       <span style={{ fontSize: 16, color: "var(--muted)", maxWidth: 380 }}>{body}</span>
     </span>
   );

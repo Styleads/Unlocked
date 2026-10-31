@@ -1,13 +1,13 @@
-import { ChevronDown } from "lucide-react";
+import { ArrowRight, ChevronDown } from "lucide-react";
 import type { ReactNode } from "react";
 import { BackLink, FlowHeader, PrimaryLink } from "../ui";
 import { useSession } from "../session";
 import type { Details as DetailsT } from "../session";
 
 const NEXT = [
-  "We search official government sources",
-  "Read each scheme's eligibility rules",
-  "Check them against what you tell us here",
+  "Discover relevant government schemes",
+  "Verify eligibility against official criteria",
+  "Get document checklists and application guidance",
 ];
 
 export default function Details() {
@@ -20,21 +20,26 @@ export default function Details() {
     <div className="page">
       <FlowHeader current={1} />
       <main className="main" style={{ flexDirection: "row", flexWrap: "wrap", gap: 56, alignItems: "flex-start" }}>
-        <div className="stack" style={{ flex: "1 1 340px", gap: 20 }}>
-          <span className="eyebrow rise">_ Step 1 of 4 · Your details</span>
-          <h1 className="serif display rise d1">A little about you.</h1>
-          <p className="lede rise d2" style={{ maxWidth: 400 }}>
-            Only your state is required. Every field says why we ask, and anything you leave blank never counts against you.
-          </p>
-          <div className="stack rise d3" style={{ marginTop: 16, borderTop: "1px solid var(--line-2)" }}>
-            <span className="label" style={{ color: "var(--faintest)", padding: "16px 0 6px" }}>WHAT HAPPENS NEXT</span>
-            {NEXT.map((t) => (
-              <div key={t} style={{ display: "flex", gap: 14, alignItems: "baseline", padding: "10px 0" }}>
-                <span className="mono" style={{ fontSize: 12, color: "var(--primary-dark)", fontWeight: 600 }}>→</span>
-                <span style={{ fontSize: 15, color: "var(--text-2)" }}>{t}</span>
-              </div>
-            ))}
+        <div className="side" style={{ flex: "1 1 340px" }}>
+          <div className="side-head">
+            <span className="side-eyebrow rise">STEP 1 OF 4 · YOUR DETAILS</span>
+            <h1 className="serif display rise d1">Let's understand your needs.</h1>
+            <p className="side-desc rise d2">
+              Share a few details about yourself so our AI agents can identify relevant schemes, assess eligibility, and help you navigate the application process.
+            </p>
           </div>
+          <div className="side-next rise d3">
+            <span className="side-label">WHAT HAPPENS NEXT</span>
+            <ul>
+              {NEXT.map((t) => (
+                <li key={t}>
+                  <ArrowRight size={16} strokeWidth={2.2} aria-hidden />
+                  <span>{t}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <p className="side-note rise d4">Only your state is required. Optional details help improve your results.</p>
         </div>
 
         <form

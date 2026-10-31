@@ -2,14 +2,12 @@ import { FlowHeader, PrimaryLink } from "../ui";
 import { Link } from "../router";
 import { useSession } from "../session";
 import type { Answer } from "../session";
-import { QUESTIONS } from "../data";
+import { QUESTIONS, SCHEMES } from "../data";
+import { questionsAffecting } from "../eligibility";
 
-const AFFECTS = [
-  { name: "Demo Scholarship A", qs: "Q1 · Q4" },
-  { name: "Demo Fee Concession B", qs: "Q1 · Q2" },
-  { name: "Demo Merit Award C", qs: "Q3 · Q4" },
-  { name: "Demo Housing Aid D", qs: "Q3" },
-];
+const AFFECTS = SCHEMES.filter((s) => s.verified)
+  .map((s) => ({ name: s.name, qs: questionsAffecting(s) }))
+  .filter((r) => r.qs !== "");
 
 const CIRC = 213.6; // 2πr for r = 34
 
@@ -28,7 +26,7 @@ export default function Questions() {
         <div className="row-between" style={{ alignItems: "flex-end", gap: 24 }}>
           <div className="stack" style={{ gap: 14, maxWidth: 700 }}>
             <span className="eyebrow rise">_ Step 2 of 4 · Questions</span>
-            <h1 className="serif rise d1" style={{ fontSize: "clamp(42px, 5vw, 68px)", lineHeight: 1 }}>Four questions to sharpen your results.</h1>
+            <h1 className="serif rise d1" style={{ fontSize: "clamp(30px, 3.6vw, 48px)", lineHeight: 1 }}>Four questions to sharpen your results.</h1>
             <p className="lede rise d2">Answer what you can. Skipping is fine and never counts against you.</p>
           </div>
           <Link className="rise d2" to="/results" style={{ fontSize: 15, minHeight: 44, display: "inline-flex", alignItems: "center", textUnderlineOffset: 4, color: "var(--primary-dark)", fontWeight: 500 }}>
@@ -53,7 +51,7 @@ export default function Questions() {
                       <span className="mono" style={{ fontSize: 12, color: "var(--faint)" }}>Q{i + 1}</span>
                       {q.sensitive && <span className="sens">SENSITIVE · YOU CAN SKIP THIS</span>}
                     </span>
-                    <span className="serif" style={{ fontSize: 30, lineHeight: 1.1, color: "var(--text)" }}>{q.text}</span>
+                    <span className="serif" style={{ fontSize: 24, lineHeight: 1.1, color: "var(--text)" }}>{q.text}</span>
                   </legend>
                   <p style={{ fontSize: 14, color: "var(--faint)", clear: "both" }}>
                     <span style={{ color: "var(--text-2)", fontWeight: 500 }}>Why we ask:</span> {q.why}
@@ -100,7 +98,7 @@ export default function Questions() {
                 />
               </svg>
               <div className="stack" style={{ gap: 2 }}>
-                <span className="serif" style={{ fontSize: 40, lineHeight: 1 }}>
+                <span className="serif" style={{ fontSize: 32, lineHeight: 1 }}>
                   {answered} <span style={{ color: "var(--faintest)" }}>/ {total}</span>
                 </span>
                 <span style={{ fontSize: 14, color: "var(--muted)" }}>questions answered</span>

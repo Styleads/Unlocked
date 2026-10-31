@@ -4,18 +4,22 @@ import { ArrowRight, Check, CircleAlert, X, ShieldCheck } from "lucide-react";
 import { ArrowChip, BackLink, Disclaimer, FlowHeader, OutcomeSourceBadge, SourceLink, StatusBadge } from "../ui";
 import { Link } from "../router";
 import { useSession } from "../session";
-import { INCOME_WITHIN_LIMIT, QUESTIONS } from "../data";
+import { QUESTIONS, SCHEMES } from "../data";
+import { evaluateScheme } from "../eligibility";
+import type { Evaluated } from "../eligibility";
 
 const NOTICE = "https://example.gov.in/scholarship-a/notice";
 const INCOME_Q = QUESTIONS.find((q) => q.id === "income")!;
 
-const EXPLANATION = {
-  info: "Your course and domicile meet the rules. We still need your family income to check the income limit.",
-  ok: "Your answers appear to meet all three criteria we checked.",
-  warn: "Your family income appears to be above the limit stated in the notice.",
-};
-const DONE_TITLE = { ok: "Now a potential match.", warn: "Now unlikely to match.", info: "Still needs your income." };
+const SCHEME_A = SCHEMES.find((s) => s.id === "a")!;
 
+const RESULT_REASON: Record<string, string> = {
+  ok: "Your answer meets this rule.",
+  no: "Your answer appears not to meet this rule.",
+  unanswered: "You haven't answered this yet.",
+  not_sure: "You marked this as not sure. That's fine.",
+  private: "You chose to keep this private.",
+};
 const STEPS = [
   "Create an account on the official scholarship portal.",
   "Fill in the application and upload your documents.",
@@ -29,20 +33,16 @@ export default function Scheme() {
   // Shares the income answer with the Questions step, so answering in either place counts.
   const [stage, setStage] = useState<"idle" | "ask" | "done">(income !== undefined ? "done" : "idle");
 
-  const status: "ok" | "warn" | "info" =
-    income === undefined || income === "__unsure" || income === "__prefer" ? "info" : INCOME_WITHIN_LIMIT.has(income) ? "ok" : "warn";
+  // Same evaluation as the Results page, so the status and criteria here always match the card there.
+  const ev = evaluateScheme(SCHEME_A, session);
+  const status = ev.status === "ok" || ev.status === "warn" ? ev.status : "info";
+  const incomeEval = ev.criteria.find((e) => e.criterion.id === "income")!;
+  const doneTitle = incomeEval.pip === "ok" ? "Income is within the limit." : incomeEval.pip === "no" ? "Income appears above the limit." : "Still needs your income.";
   const answerLabel = income === "__unsure" ? "Not sure" : income === "__prefer" ? "Prefer not to say" : income ?? "";
   const answer = (v: string) => {
     update((s) => ({ answers: { ...s.answers, income: v } }));
     setStage("done");
   };
-
-  const incomeReason =
-    status === "ok" ? "Your bracket is within the stated limit."
-    : status === "warn" ? "Your bracket is above the stated limit."
-    : income === "__unsure" ? "You marked this as not sure. That's fine."
-    : income === "__prefer" ? "You chose to keep this private."
-    : "You haven't answered this yet.";
 
   return (
     <div className="page">
@@ -57,7 +57,7 @@ export default function Scheme() {
             <span className="mono" style={{ fontSize: 11, color: "var(--faintest)" }}>Last verified: Oct 2026</span>
           </div>
           <div className="row-between" style={{ alignItems: "flex-end", gap: 20 }}>
-            <h1 className="serif rise d1" style={{ fontSize: "clamp(52px, 6.4vw, 96px)", lineHeight: 0.95 }}>Demo Scholarship A</h1>
+            <h1 className="serif rise d1" style={{ fontSize: "clamp(36px, 4.6vw, 64px)", lineHeight: 0.95 }}>Demo Scholarship A</h1>
             <div className="rise d2" aria-live="polite">
               <StatusBadge key={status} status={status} large className="pop" />
             </div>
@@ -87,26 +87,16 @@ export default function Scheme() {
         <div style={{ display: "flex", flexWrap: "wrap", gap: 40, alignItems: "flex-start" }}>
           <div className="stack" style={{ flex: "999 1 640px", minWidth: 0 }}>
             <Section n="01" title="Why this status" className="rise d2">
-              <p style={{ fontSize: 18, color: "var(--text-2)", textWrap: "pretty" }}>{EXPLANATION[status]}</p>
+              <p style={{ fontSize: 16, color: "var(--text-2)", textWrap: "pretty" }}>{ev.expl}</p>
             </Section>
 
             <Section n="02" title="Criteria" className="rise d3">
-              <Criterion rule="“Must be enrolled in an undergraduate degree course.”" result={<MeetsChip />} reason="You said you're studying for an undergraduate degree." clause={2} />
-              <Criterion rule="“Applicant must be a resident of Karnataka.”" result={<MeetsChip />} reason="You said you have Karnataka domicile." clause={3} />
-              <Criterion
-                rule="“Annual family income up to ₹2.5 lakh.”"
-                result={
-                  status === "ok" ? <MeetsChip key="ok" />
-                  : status === "warn" ? <span key="no" className="rchip r-no pop"><X size={14} strokeWidth={2.4} aria-hidden />Doesn't appear to meet</span>
-                  : <span key="unk" className="rchip r-unk hatch pop">? Not answered yet</span>
-                }
-                reason={incomeReason}
-                clause={4}
-              />
-            </Section>
+              {ev.criteria.map((e, i) => (
+                <Criterion key={e.criterion.id} rule={`“${e.criterion.rule}”`} result={<ResultChip e={e} />} reason={RESULT_REASON[e.pip === "unk" ? (e.cause ?? "unanswered") : e.pip]} clause={i + 2} />
+              ))}            </Section>
 
             <Section n="03" title="Benefit">
-              <p style={{ fontSize: 17, color: "var(--text-2)" }}>An annual grant toward tuition and books. The exact amount is set in each year's notice.</p>
+              <p style={{ fontSize: 15, color: "var(--text-2)" }}>An annual grant toward tuition and books. The exact amount is set in each year's notice.</p>
             </Section>
 
             <Section n="04" title="Documents" gap={0}>
@@ -136,9 +126,9 @@ export default function Scheme() {
             </Section>
 
             <Section n="07" title="Uncertainties">
-              <div className="hatch" style={{ padding: "18px 20px", borderRadius: 20, border: "1px solid var(--line-3)", display: "flex", gap: 12, alignItems: "flex-start" }}>
+              <div className="note-box" style={{ padding: "18px 20px", borderRadius: 20, border: "1px solid var(--line-3)", display: "flex", gap: 12, alignItems: "flex-start" }}>
                 <CircleAlert size={20} color="var(--secondary-dark)" aria-hidden style={{ flex: "none", marginTop: 2 }} />
-                <span style={{ fontSize: 15, background: "var(--surface)", padding: "4px 8px", borderRadius: 8, border: "1px solid var(--line-2)" }}>
+                <span style={{ fontSize: 15, lineHeight: 1.5, color: "var(--text-2)" }}>
                   The notice doesn't say whether diploma courses count as undergraduate.
                 </span>
               </div>
@@ -150,8 +140,8 @@ export default function Scheme() {
               {stage === "idle" && (
                 <>
                   <span className="label">1 QUESTION LEFT</span>
-                  <span className="serif" style={{ fontSize: 30, lineHeight: 1.05 }}>Check this scheme against your income.</span>
-                  <span style={{ fontSize: 15, color: "var(--muted)" }}>It's the only criterion we couldn't check yet.</span>
+                  <span className="serif" style={{ fontSize: 24, lineHeight: 1.05 }}>Check this scheme against your income.</span>
+                  <span style={{ fontSize: 15, color: "var(--muted)" }}>{ev.criteria.some((e) => e.pip === "unk" && e.criterion.id !== "income") ? "Other rules for this scheme also still need answers." : "It's the only criterion we couldn't check yet."}</span>
                   <button className="btn" onClick={() => setStage("ask")} style={{ alignSelf: "flex-start" }}>
                     Check my eligibility
                     <ArrowChip />
@@ -164,7 +154,7 @@ export default function Scheme() {
                     <span className="mono" style={{ fontSize: 12, color: "var(--faint)" }}>Q1</span>
                     <span className="sens">SENSITIVE · YOU CAN SKIP THIS</span>
                   </span>
-                  <span className="serif" style={{ fontSize: 28, lineHeight: 1.1 }}>{INCOME_Q.text}</span>
+                  <span className="serif" style={{ fontSize: 22, lineHeight: 1.1 }}>{INCOME_Q.text}</span>
                   <span style={{ fontSize: 14, color: "var(--faint)" }}>We only keep the bracket, never an exact figure.</span>
                   <div role="group" aria-label="Income bracket" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                     {INCOME_Q.opts.map((o) => (
@@ -180,7 +170,7 @@ export default function Scheme() {
               {stage === "done" && (
                 <div className="pop stack" style={{ gap: 12 }}>
                   <span className="label">ASSESSMENT UPDATED</span>
-                  <span className="serif" style={{ fontSize: 30, lineHeight: 1.05 }}>{DONE_TITLE[status]}</span>
+                  <span className="serif" style={{ fontSize: 24, lineHeight: 1.05 }}>{doneTitle}</span>
                   <span style={{ fontSize: 15, color: "var(--muted)" }}>Your answer: {answerLabel}</span>
                   <button className="text-link" onClick={() => setStage("ask")} style={{ alignSelf: "flex-start" }}>Change answer</button>
                 </div>
@@ -211,6 +201,12 @@ function Section({ n, title, gap, className = "", children }: { n: string; title
       <div className="sec-b" style={gap !== undefined ? { gap } : undefined}>{children}</div>
     </section>
   );
+}
+
+function ResultChip({ e }: { e: Evaluated }) {
+  if (e.pip === "ok") return <MeetsChip />;
+  if (e.pip === "no") return <span className="rchip r-no pop"><X size={14} strokeWidth={2.4} aria-hidden />Doesn't appear to meet</span>;
+  return <span className="rchip r-unk hatch pop">{e.cause === "unanswered" || !e.cause ? "? Not answered yet" : "? Still unknown"}</span>;
 }
 
 function MeetsChip() {

@@ -1,12 +1,12 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ArrowUpRight, Check, ChevronDown, TriangleAlert } from "lucide-react";
 import { Disclaimer, FlowHeader, OutcomeSourceBadge, PrimaryLink, SourceLink, StatusBadge, statusLabel } from "../ui";
 import { Link } from "../router";
 import { useSession } from "../session";
-import { SCHEMES } from "../data";
-import type { Scheme } from "../data";
+import { evaluateAll, improvement } from "../eligibility";
+import type { EvaluatedScheme, SchemeStatus } from "../eligibility";
 
-type Filter = "all" | Scheme["status"];
+type Filter = "all" | SchemeStatus;
 
 /** Demo: append ?limited to the URL to see the "live search had trouble" banner. */
 const liveSearchFailed = () => new URLSearchParams(window.location.search).has("limited");
@@ -17,16 +17,22 @@ export default function Results() {
   const [showUnlikely, setShowUnlikely] = useState(false);
   const hasAnswers = Object.values(session.answers).some((a) => a !== undefined);
 
+  // Everything below is derived from the saved answers (and the Context form), so all sections agree.
+  const evals = useMemo(() => evaluateAll(session), [session.answers, session.details]);
+  const improve = useMemo(() => improvement(evals, session), [evals, session.answers]);
+
   const counts = { ok: 0, info: 0, nv: 0, warn: 0 };
-  SCHEMES.forEach((s) => counts[s.status]++);
+  evals.forEach((e) => counts[e.status]++);
   const filters: { k: Filter; label: string; count: number }[] = [
-    { k: "all", label: "All", count: SCHEMES.length },
+    { k: "all", label: "All", count: evals.length },
     ...(["ok", "info", "nv", "warn"] as const).filter((k) => counts[k] > 0).map((k) => ({ k, label: statusLabel(k, true), count: counts[k] })),
   ];
-  const visible = filter === "all" ? SCHEMES.filter((s) => s.status !== "warn" || showUnlikely) : SCHEMES.filter((s) => s.status === filter);
-  const totalCriteria = SCHEMES.reduce((n, s) => n + s.pips.length, 0);
-  const met = SCHEMES.reduce((n, s) => n + s.met, 0);
-  const unknown = SCHEMES.reduce((n, s) => n + s.pips.filter((p) => p === "unk").length, 0);
+  const visible = filter === "all" ? evals.filter((e) => e.status !== "warn" || showUnlikely) : evals.filter((e) => e.status === filter);
+  // Unverified schemes are left out of the criteria summary: their rules were never checked.
+  const checked = evals.filter((e) => e.scheme.verified);
+  const totalCriteria = checked.reduce((n, e) => n + e.pips.length, 0);
+  const met = checked.reduce((n, e) => n + e.met, 0);
+  const unknown = checked.reduce((n, e) => n + e.pips.filter((p) => p === "unk").length, 0);
 
   return (
     <div className="page">
@@ -35,7 +41,7 @@ export default function Results() {
         <div className="row-between" style={{ alignItems: "flex-end", gap: 24 }}>
           <div className="stack" style={{ gap: 12 }}>
             <span className="eyebrow rise">_ Step 3 of 4 · Results</span>
-            <h1 className="serif display rise d1">We found {SCHEMES.length} schemes.</h1>
+            <h1 className="serif display rise d1">We found {evals.length} schemes.</h1>
             <p className="lede rise d2">Sorted by how well your answers fit. Every card links to its official source.</p>
           </div>
           <PrimaryLink to="/plan" className="rise d2">Build my document plan</PrimaryLink>
@@ -54,7 +60,7 @@ export default function Results() {
           <div className="card stack" style={{ padding: 22, gap: 18 }}>
             <div className="row-between">
               <span style={{ fontSize: 15, fontWeight: 600 }}>Status breakdown</span>
-              <span className="mono" style={{ fontSize: 12, color: "var(--faint)" }}>{SCHEMES.length} SCHEMES</span>
+              <span className="mono" style={{ fontSize: 12, color: "var(--faint)" }}>{evals.length} SCHEMES</span>
             </div>
             <div style={{ display: "flex", gap: 4 }} role="img" aria-label={`${counts.ok} potential match, ${counts.info} need more info, ${counts.nv} not yet verified, ${counts.warn} unlikely`}>
               <div className="seg s1" style={{ flex: counts.ok, background: "var(--primary)" }} />
@@ -76,16 +82,16 @@ export default function Results() {
               <span className="mono" style={{ fontSize: 12, color: "var(--faint)" }}>ACROSS ALL</span>
             </div>
             <div className="hatch" style={{ position: "relative", height: 14, borderRadius: 999, overflow: "hidden", border: "1px solid var(--line-2)" }}>
-              <div className="seg s2" style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${Math.round((met / totalCriteria) * 100)}%`, background: "var(--primary)" }} />
+              <div className="seg s2" style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${totalCriteria ? Math.round((met / totalCriteria) * 100) : 0}%`, background: "var(--primary)" }} />
             </div>
             <div className="row-between" style={{ alignItems: "baseline", gap: 12 }}>
-              <span className="serif" style={{ fontSize: 34, lineHeight: 1 }}>{met} <span style={{ color: "var(--faintest)" }}>of {totalCriteria} met</span></span>
+              <span className="serif" style={{ fontSize: 27, lineHeight: 1 }}>{met} <span style={{ color: "var(--faintest)" }}>of {totalCriteria} met</span></span>
               <span style={{ fontSize: 13, color: "var(--muted)" }}>{unknown} still unknown</span>
             </div>
           </div>
 
           <Link
-            to="/questions"
+            to={improve.to}
             className="card"
             style={{
               padding: 22,
@@ -105,7 +111,11 @@ export default function Results() {
                 <ArrowUpRight size={16} strokeWidth={2.2} aria-hidden />
               </span>
             </div>
-            <span className="serif" style={{ fontSize: 30, lineHeight: 1.05 }}>Answer 2 more questions to check 2 schemes.</span>
+            <div className="stack" style={{ gap: 8 }}>
+              <span className="serif" style={{ fontSize: 24, lineHeight: 1.05 }}>{improve.title}</span>
+              {improve.detail && <span style={{ fontSize: 13, lineHeight: 1.45, color: "var(--muted)" }}>{improve.detail}</span>}
+              {improve.cta && <span style={{ fontSize: 13, color: "var(--primary-dark)", fontWeight: 500 }}>{improve.cta}</span>}
+            </div>
           </Link>
         </div>
 
@@ -119,8 +129,8 @@ export default function Results() {
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(460px, 100%), 1fr))", gap: 14 }}>
-          {visible.map((s, i) => (
-            <SchemeCard key={s.id} scheme={s} delay={Math.min(i + 1, 6)} />
+          {visible.map((e, i) => (
+            <SchemeCard key={e.scheme.id} ev={e} delay={Math.min(i + 1, 6)} />
           ))}
         </div>
 
@@ -157,33 +167,34 @@ function LegendItem({ color, dashed, children }: { color?: string; dashed?: bool
   );
 }
 
-function SchemeCard({ scheme: s, delay }: { scheme: Scheme; delay: number }) {
+function SchemeCard({ ev, delay }: { ev: EvaluatedScheme; delay: number }) {
+  const { scheme: s, status, pips, met, missing, expl } = ev;
   return (
     <article className={`card scard rise d${delay}`}>
       <div className="row-between" style={{ alignItems: "flex-start", gap: 12 }}>
         <div className="stack" style={{ gap: 6, minWidth: 0 }}>
           <span className="mono" style={{ fontSize: 12, color: "var(--faint)" }}>{s.dept}</span>
-          <h2 className="serif" style={{ fontSize: 30, lineHeight: 1.05 }}>{s.name}</h2>
+          <h2 className="serif" style={{ fontSize: 24, lineHeight: 1.05 }}>{s.name}</h2>
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
           <OutcomeSourceBadge type={s.sourceType} />
-          <StatusBadge status={s.status} />
+          <StatusBadge status={status} />
         </div>
       </div>
       <p style={{ fontSize: 16, color: "var(--text-2)" }}>{s.summary}</p>
-      <p className="clamp" style={{ fontSize: 15, color: "var(--faint)" }}>{s.expl}</p>
+      <p className="clamp" style={{ fontSize: 15, color: "var(--faint)" }}>{expl}</p>
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <div style={{ display: "flex", gap: 4 }} aria-hidden>
-          {s.pips.map((p, i) => <span key={i} className={`pip p-${p}`} />)}
+          {pips.map((p, i) => <span key={i} className={`pip p-${p}`} />)}
         </div>
         <span style={{ fontSize: 13, color: "var(--muted)" }}>
-          {s.status === "nv" ? "Rules not verified yet" : `${s.met} of ${s.pips.length} criteria met`}
+          {status === "nv" ? "Rules not verified yet" : `${met} of ${pips.length} criteria met`}
         </span>
       </div>
-      {s.missing.length > 0 && (
+      {missing.length > 0 && (
         <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
           <span style={{ fontSize: 13, color: "var(--faint)" }}>Missing:</span>
-          {s.missing.map((m) => <span key={m} className="miss">{m}</span>)}
+          {missing.map((m) => <span key={m} className="miss">{m}</span>)}
         </div>
       )}
       <div className="row-between" style={{ gap: 12, paddingTop: 14, borderTop: "1px solid var(--line-2)", marginTop: "auto" }}>
