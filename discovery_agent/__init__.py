@@ -5,6 +5,8 @@ Autonomous discovery engine for Indian and Karnataka government benefits.
 """
 
 from discovery_agent.adapter import (
+    adapt_m1_to_m2_scheme,
+    adapt_m1_to_m2_schemes,
     to_canonical_scheme,
     to_canonical_schemes,
 )
@@ -50,6 +52,8 @@ __all__ = [
     "discover_schemes",
     "to_canonical_scheme",
     "to_canonical_schemes",
+    "adapt_m1_to_m2_scheme",
+    "adapt_m1_to_m2_schemes",
     "build_search_queries",
     "deduplicate_results",
     "load_fallback_schemes",

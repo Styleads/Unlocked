@@ -118,7 +118,7 @@ class SchemeRecord(BaseModel):
 >    ```bash
 >    python -m member2.check_member1 path/to/schemes.json
 >    ```
-> 6. **Compliance Adapter:** Member 1 maintains `discovery_agent/adapter.py` (`adapt_m1_to_m2_scheme`), which automatically maps raw extraction outputs into canonical `member2.models.SchemeRecord` instances with sourced documents and canonical attributes.
+> 6. **Compliance Adapter:** Member 1 maintains `discovery_agent/adapter.py` (`adapt_m1_to_m2_scheme` / `to_canonical_scheme`), which automatically maps raw extraction outputs into canonical `member2.models.SchemeRecord` instances with sourced documents and canonical attributes.
 
 ### 2.2 System Prompt & Extraction Schema
 
@@ -583,12 +583,13 @@ async def create_session(payload: CreateSessionRequest):
 @app.post("/api/discover")
 async def run_discovery(session_id: str):
     session = await db.get_session(session_id)
-    # 1. Member 1: Discovery module
+    # 1. Member 1: Discovery module + compliance adapter
     raw_schemes = await discovery_agent.discover_schemes(session.context, session.scope)
+    adapted_schemes = [discovery_agent.adapt_m1_to_m2_scheme(s) for s in raw_schemes]
     
     # 2. Member 2: Normalize once per discovery run with LLM; save normalized schemes!
     # They carry the 'normalized_by' marker that prevents repeat LLM calls.
-    normalized_schemes = normalize_requirements(raw_schemes, llm=default_client())
+    normalized_schemes = normalize_requirements(adapted_schemes, llm=default_client())
     await db.save_schemes(session_id, normalized_schemes)
     
     # 3. Assess with current answers and generate consolidated questions

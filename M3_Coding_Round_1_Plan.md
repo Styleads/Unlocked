@@ -182,7 +182,14 @@ def build_action_plan(
 ```
 
 ### 5.3 M1-to-M2 Schema Adapter (`api/adapter.py`)
-Because Member 1 extracts `eligibility_criteria` (as `SchemeCriterion`) and flat document strings, while Member 2 expects `requirements` (as `Requirement`) and structured `DocumentRequirement` objects, Member 3 provides the canonical adapter:
+Because Member 1 extracts `eligibility_criteria` (as `SchemeCriterion`) and flat document strings, while Member 2 expects `requirements` (as `Requirement`) and structured `DocumentRequirement` objects, Member 3 provides the canonical adapter.
+
+> [!TIP]
+> **Production Implementation Available:** Member 1 has already implemented and verified this exact transformation in [`discovery_agent/adapter.py`](file:///home/kruthik/coding/Unlocked/discovery_agent/adapter.py) (`adapt_m1_to_m2_scheme` / `to_canonical_scheme`). It automatically resolves canonical attributes via `member2.attributes.resolve_attribute`, prefixes unmapped attributes with `unmapped:`, normalizes operators to `Operator` enums, and attaches `source_url` and `evidence` to all documents so Agent 3 never excludes them from the checklist.
+> In `api/adapter.py`, Member 3 can simply re-export:
+> ```python
+> from discovery_agent.adapter import adapt_m1_to_m2_scheme, adapt_m1_to_m2_schemes
+> ```
 
 ```python
 from typing import Any

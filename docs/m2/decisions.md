@@ -59,3 +59,13 @@ Document decisions on requirement normalization, question ranking algorithms, an
   2. Aligned `SchemeRecord`, `Requirement`, `DocumentRequirement`, `Question`, `Answer`, `Assessment`, and `ActionPlan` models.
   3. Documented real function signatures for orchestrator (`normalize_requirements`, `apply_answers`, `generate_consolidated_questions`, `build_action_plan`).
 * **Consequences:** All team members share a unified, verified specification before wiring frontend and backend services.
+
+### [2026-10-31] ADR-007: Review Round 1 Integration & Compliance Validation
+* **Status:** Accepted
+* **Context:** Review Round 1 confirmed integration with Member 1's discovery output and Member 3's orchestration plan.
+* **Decision:**
+  1. Validated Member 1's `discovery_agent/adapter.py` and updated `fallback_schemes.py` against `check_member1.py`.
+  2. Confirmed documents now arrive with verified `source_url` and `evidence`, resolving the issue of sourceless documents being dropped in planning.
+  3. Coordinated with Member 3 on keyword argument expectations for `build_action_plan` and `apply_answers` state persistence.
+* **Consequences:** Member 2's 282 offline tests remain 100% green; pipeline integration is unblocked.
+

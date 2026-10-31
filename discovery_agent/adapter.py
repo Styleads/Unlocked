@@ -359,3 +359,9 @@ def to_canonical_scheme(raw: Any) -> CanonicalSchemeRecord:
 def to_canonical_schemes(schemes: Sequence[Any]) -> list[CanonicalSchemeRecord]:
     """Convert an entire sequence of schemes to canonical SchemeRecords."""
     return [to_canonical_scheme(s) for s in schemes]
+
+
+# Function aliases matching M3 orchestration plan and docs/agents.md terminology
+adapt_m1_to_m2_scheme = to_canonical_scheme
+adapt_m1_to_m2_schemes = to_canonical_schemes
+
