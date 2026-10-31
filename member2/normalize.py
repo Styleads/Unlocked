@@ -56,8 +56,12 @@ Rules:
 - Never invent a rule, threshold or value. If a value is not stated, use null.
 - "criterion" and "evidence" must be copied verbatim from the input text.
 - Output only one JSON object, no prose, in this shape:
-{{"structured": [{{"id": "<given id>", "attribute": "...", "operator": "...", "value": ...}}],
-  "extracted": [{{"attribute": "...", "operator": "...", "value": ..., "criterion": "...", "evidence": "..."}}]}}
+{{"structured": [{{"id": "<given id>", "attribute": "...", "operator": "...", "value": ...,
+                  "value_quote": "<exact words of the evidence>", "restricts": true,
+                  "when": null}}],
+  "extracted": [{{"attribute": "...", "operator": "...", "value": ..., "value_quote": "...",
+                  "restricts": true, "criterion": "...", "evidence": "..."}}]}}
+  "when", if used: {{"attribute": "...", "operator": "...", "value": ..., "quote": "<exact words>"}}
 - "structured" answers each item in "criteria_to_structure" by its id.
 - If a criterion states several conditions (e.g. income AND course AND college type),
   return one "structured" item per condition, all with the same id. Use attribute
@@ -75,9 +79,11 @@ Rules:
 
 
 CONFIRM_SYSTEM = """You check whether a phrase from an official eligibility rule states a value.
-For each item: does the phrase, read as written in a government eligibility rule, state exactly
-the given value of the given attribute? Answer false if the phrase means something narrower,
-broader or different, or if you are not sure.
+For each item: in the context of the rule, does the phrase describe exactly the same people as
+"<attribute> = <value>"? Wording variants and synonyms count (a different word for the same group
+of people is the same). A narrower group (a part of the value's group) or a wider group is NOT
+the same: answer false. Answer false if you are not sure.
+For yes/no values: does the phrase state that this attribute must be yes (or no)?
 Return only JSON: {"results": {"<id>": true|false}}"""
 
 

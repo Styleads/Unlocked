@@ -321,3 +321,25 @@ def test_organisation_schemes_left_out_and_budget_respected(monkeypatch):
     assert by_id["slow"]["eligibility_criteria"] == []  # late result never applied
     assert pipeline.UNCHECKED_NOTE in by_id["slow"]["missing_information"]
     assert by_id["ngo"]["beneficiary_type"] == "organisation" and by_id["person"]["beneficiary_type"] == "individual"
+
+
+def test_other_state_schemes_are_identified_from_quoted_jurisdiction():
+    from discovery_agent.scheme_details import other_state
+    assert other_state({"jurisdiction": "Madhya Pradesh"}, "Karnataka")
+    assert not other_state({"jurisdiction": "Karnataka"}, "karnataka")
+    assert not other_state({"jurisdiction": "central"}, "Karnataka")
+    assert not other_state({}, "Karnataka")          # no verified jurisdiction: keep
+    assert not other_state({"jurisdiction": "Kerala"}, None)  # user state unknown: keep
+
+
+def test_jurisdiction_recorded_only_with_a_real_quote():
+    url = "https://example.gov.in/mp-widow"
+    page = "**Demo Widow Pension:**\nThe Madhya Pradesh Government provides a pension to widows aged 40 to 79.\n"
+    data = {"eligibility_criteria": [{"description": "Widows 40-79", "source_url": url, "kind": "eligibility",
+                                      "evidence": "The Madhya Pradesh Government provides a pension to widows aged 40 to 79."}],
+            "documents": [],
+            "jurisdiction": {"state": "Madhya Pradesh", "source_url": url,
+                             "evidence": "The Madhya Pradesh Government provides a pension to widows aged 40 to 79."}}
+    scheme = {"id": "w", "name": "Demo Widow Pension", "documents": []}
+    assert enrich_scheme(_Seq(data, {"documents": []}), "m", scheme, _search([(url, page)]))
+    assert scheme["jurisdiction"] == "Madhya Pradesh"

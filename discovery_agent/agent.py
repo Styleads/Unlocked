@@ -52,7 +52,9 @@ YOUR RULES:
     will be added in a later development stage.
 """
 
-MODEL = "gemini-flash-lite-latest"
+# Same setting as member2 (UNLOCKED_MODEL), so one variable switches every agent,
+# e.g. to another model when a free-tier daily quota runs out.
+MODEL = os.getenv("UNLOCKED_MODEL") or "gemini-flash-lite-latest"
 
 
 def create_agent_chat(api_key: str | None = None, model: str = MODEL):

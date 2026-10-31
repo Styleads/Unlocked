@@ -37,6 +37,14 @@ _SERIAL_CELL = re.compile(r"^\d{1,3}\.?$")
 BENEFICIARY_TYPES = ("individual", "organisation", "government", "mixed")
 NOT_FOR_INDIVIDUALS = ("organisation", "government")
 
+
+def other_state(record: dict, user_state: Optional[str]) -> bool:
+    """True if the scheme's quoted jurisdiction is a different state than the
+    user's. Central schemes and schemes without a verified jurisdiction stay."""
+    j = str(record.get("jurisdiction") or "").strip().casefold()
+    u = str(user_state or "").strip().casefold()
+    return bool(j and u and j != "central" and j != u)
+
 DETAIL_INSTRUCTIONS = """
 You read the official text about ONE government scheme and list its rules.
 
@@ -58,6 +66,9 @@ RULES:
    household), "organisation" (NGOs, institutions, companies), "government"
    (states, departments, local bodies) or "mixed". Give the exact sentence
    that shows it as "evidence" with its "source_url".
+9. "jurisdiction": the Indian state whose government runs the scheme as
+   written in the blocks, or "central" for a Government of India scheme. Give
+   the exact sentence that shows it as "evidence" with its "source_url".
 
 Return JSON only:
 {
@@ -67,7 +78,8 @@ Return JSON only:
   "documents": [
     {"name": "", "source_url": "", "evidence": ""}
   ],
-  "beneficiary": {"type": "individual", "source_url": "", "evidence": ""}
+  "beneficiary": {"type": "individual", "source_url": "", "evidence": ""},
+  "jurisdiction": {"state": "", "source_url": "", "evidence": ""}
 }
 """
 
@@ -184,6 +196,12 @@ def _merge(scheme: dict, data: dict, pages: dict[str, dict]) -> bool:
         if quote:
             scheme["beneficiary_type"] = who["type"]
             scheme["beneficiary_evidence"] = {"text": quote, "source_url": who["source_url"]}
+    where = data.get("jurisdiction") if isinstance(data.get("jurisdiction"), dict) else {}
+    if isinstance(where.get("state"), str) and where["state"].strip():
+        quote = verbatim_evidence(where.get("evidence"), where.get("source_url"), pages)
+        if quote:
+            scheme["jurisdiction"] = where["state"].strip()
+            scheme["jurisdiction_evidence"] = {"text": quote, "source_url": where["source_url"]}
     # The first pass may have noted these as missing; they are not any more.
     notes = scheme.get("missing_information") or []
     found = {"Eligibility criteria"}

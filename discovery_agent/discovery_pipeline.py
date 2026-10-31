@@ -43,7 +43,9 @@ def gemini_api_key() -> str | None:
     """GOOGLE_API_KEY (Agent 1's name) or GEMINI_API_KEY (member2's name)."""
     return os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
 
-MODEL = "gemini-flash-lite-latest"
+# Same setting as member2 (UNLOCKED_MODEL), so one variable switches every agent,
+# e.g. to another model when a free-tier daily quota runs out.
+MODEL = os.getenv("UNLOCKED_MODEL") or "gemini-flash-lite-latest"
 
 
 # --------------------------------------------------
@@ -469,11 +471,18 @@ async def discover_schemes(
             await _enrich_details(client, records)
             # Schemes whose official page says they are for organisations or
             # governments (grants to NGOs, states) are not shown to individuals.
-            from discovery_agent.scheme_details import NOT_FOR_INDIVIDUALS
+            from discovery_agent.scheme_details import NOT_FOR_INDIVIDUALS, other_state
             kept = [r for r in records if r.get("beneficiary_type") not in NOT_FOR_INDIVIDUALS]
             if len(kept) < len(records):
                 logger.info("Left out %d scheme(s) meant for organisations or governments.", len(records) - len(kept))
-            records = kept
+            # Another state's scheme (official .gov.in pages from any state turn
+            # up in search) doesn't apply to this user.
+            location = user_context.get("location") if isinstance(user_context.get("location"), dict) else {}
+            user_state = location.get("state") or user_context.get("state")
+            local = [r for r in kept if not other_state(r, user_state)]
+            if len(local) < len(kept):
+                logger.info("Left out %d scheme(s) run by another state.", len(kept) - len(local))
+            records = local
 
         # Live records use Agent 1's schema; convert so every path returns
         # the same canonical type (fallbacks are already converted).
