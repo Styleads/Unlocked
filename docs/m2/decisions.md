@@ -50,3 +50,12 @@ Document decisions on requirement normalization, question ranking algorithms, an
 * **Context:** Anthropic API is paid; the team needs a free option.
 * **Decision:** `GeminiClient` (REST `v1beta`, standard library only), model alias `gemini-flash-lite-latest`, retries on 429/5xx. Used automatically when `GEMINI_API_KEY` is set.
 * **Consequences:** Free and no extra install. The alias can move to a newer model; pinned names get retired.
+
+### [2026-10-31] ADR-006: Contract Harmonization across agents.md and plan.md §5
+* **Status:** Accepted
+* **Context:** Discrepancies between initial pseudocode sketches in `docs/agents.md` and the final schemas in `plan.md §5` risked breaking integration across Members 1, 2, 3, and 4.
+* **Decision:**
+  1. Updated `docs/agents.md` to treat `plan.md §5` and `member2` as the authoritative source of truth.
+  2. Aligned `SchemeRecord`, `Requirement`, `DocumentRequirement`, `Question`, `Answer`, `Assessment`, and `ActionPlan` models.
+  3. Documented real function signatures for orchestrator (`normalize_requirements`, `apply_answers`, `generate_consolidated_questions`, `build_action_plan`).
+* **Consequences:** All team members share a unified, verified specification before wiring frontend and backend services.

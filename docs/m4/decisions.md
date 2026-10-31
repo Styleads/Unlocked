@@ -33,3 +33,13 @@ Document UI framework decisions, state management, design tokens, and mock strat
   - Unlikely to match (Neutral gray badge + slash icon)
 * **Consequences:** Fully accessible, prevents misunderstanding of official eligibility.
 
+### [2026-10-31] ADR-003: Contract Synchronization with Member 2 Models
+* **Status:** Accepted
+* **Context:** M2 finalized the Question, Answer, and ActionPlan models following `plan.md §5`. The frontend must match the backend JSON payload structures.
+* **Decision:**
+  1. Questionnaire renders inputs using `Question.input_type` (`range`, `select`, `number`, `boolean`, `text`).
+  2. For `range` questions (income), show selectable chips/buttons using `Question.ranges` labels, or min/max numeric fields.
+  3. Send skips and "not sure" as `{attribute, state: "skipped" | "unknown"}`.
+  4. Render the Action Plan using `ActionPlan.checklist` (`ChecklistItem.order`, `status`, `reason`) and highlight `shared_prerequisites`.
+* **Consequences:** Eliminates schema mismatch bugs between frontend form submission and backend evaluation.
+

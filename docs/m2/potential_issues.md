@@ -113,3 +113,4 @@ Follow the pipeline conventions established in [`member2/README.md`](file:///hom
 - Question options for selects must be submitted matching `Question.options`.
 - Range answers can be submitted either as band label strings (from `Question.ranges`) or as numeric dictionaries `{"min": ..., "max": ...}`.
 - Skips and "not sure" responses must be submitted as state objects: `{"attribute": "...", "state": "skipped" | "unknown" | "prefer_not_to_answer"}`.
+

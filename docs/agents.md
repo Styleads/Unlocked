@@ -39,44 +39,85 @@ User Answers <── [2. Eligibility Agent] <───────┤
 ## 2. Agent 1: Discovery Agent
 
 * **Owner:** Member 1 (Research & Agentic Workflow Engineer)
-* **Status / Note:** Base search/scraping is pre-built; Member 2 will update/push the module into the repository. Member 1 owns candidate extraction, schema mapping, and fallback data integrity.
-* **LLM Engine:** Gemini Flash (`gemini-2.5-flash` / `gemini-1.5-flash` via `google-genai`) with structured output enforcement.
+* **Status / Note:** Base search/scraping is pre-built; Member 1 owns candidate extraction, schema mapping, and fallback data integrity. Candidate outputs must strictly conform to the shared contracts below so Member 2's normalization and planning pipeline can consume them.
+* **LLM Engine:** Gemini Flash (`gemini-flash-lite-latest` or `gemini-1.5-flash` via `google-genai`). Note: `gemini-2.5-flash` currently returns 404 on standard free-tier API keys.
 
 ### 2.1 Pydantic Data Contracts
 
 ```python
+from enum import Enum
 from typing import Literal, Optional, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
-class RequirementSource(BaseModel):
-    id: str = Field(description="Unique requirement ID (e.g., req_ssp_01)")
-    attribute: str = Field(description="Canonical attribute key, e.g., 'annual_family_income', 'karnataka_domicile', 'caste_category'")
-    criterion: str = Field(description="Exact verbatim requirement phrase from official portal")
-    operator: Optional[Literal["lte", "gte", "eq", "in", "boolean"]] = Field(
-        default=None, description="Comparison operator for deterministic checking"
-    )
-    value: Optional[Any] = Field(default=None, description="Threshold value (e.g., 250000, 'SC', True)")
-    status: Literal["verified", "unverified", "needs_clarification"] = "unverified"
-    source_url: str = Field(description="Official .gov.in URL where this rule was stated")
-    evidence: Optional[str] = Field(default=None, description="Verbatim sentence/paragraph containing the rule")
+class RequirementVerification(str, Enum):
+    verified = "verified"
+    unverified = "unverified"
+    uncertain = "uncertain"
+
+class Operator(str, Enum):
+    lte = "lte"
+    lt = "lt"
+    gte = "gte"
+    gt = "gt"
+    eq = "eq"
+    neq = "neq"
+    in_ = "in"
+    not_in = "not_in"
+    is_true = "is_true"
+    is_false = "is_false"
+
+class Requirement(BaseModel):
+    id: str = ""  # filled by normalizer if omitted (e.g. scheme_id_req_1)
+    attribute: Optional[str] = None  # canonical id from member2/attributes.py (e.g., 'annual_family_income', 'domicile_karnataka')
+    criterion: str  # verbatim requirement phrase from official portal
+    operator: Optional[Operator] = None
+    value: Optional[Any] = None  # threshold value (e.g., 250000, ["SC", "ST"], None for is_true)
+    status: RequirementVerification = RequirementVerification.unverified
+    source_url: Optional[str] = None  # official .gov.in URL where this rule was stated
+    evidence: Optional[str] = None  # verbatim sentence/paragraph containing the rule
+
+class DocumentDependency(BaseModel):
+    depends_on: str  # raw document name; normalized in planning
+    source_url: Optional[str] = None
+    evidence: Optional[str] = None
+
+class DocumentRequirement(BaseModel):
+    name: str  # official name of required certificate/document
+    source_url: Optional[str] = None  # official URL confirming this document is required
+    evidence: Optional[str] = None  # verbatim excerpt mentioning the document requirement
+    dependencies: list[DocumentDependency] = Field(default_factory=list)
 
 class SchemeRecord(BaseModel):
-    id: str = Field(description="Normalized unique scheme slug, e.g., 'karnataka-ssp-post-matric'")
-    name: str = Field(description="Official scheme title")
-    summary: str = Field(description="Plain-language 2-sentence summary of the scheme")
-    government_level: Literal["state", "central"] = "state"
-    department: Optional[str] = Field(default=None, description="Administering department (e.g. Social Welfare Department)")
-    target_group: list[str] = Field(default_factory=list, description="Target demographic (e.g., ['post-matric students', 'OBC', 'rural'])")
-    requirements: list[RequirementSource] = Field(default_factory=list)
-    benefit: Optional[str] = Field(default=None, description="Verified monetary or physical benefit amount")
-    documents: list[str] = Field(default_factory=list, description="List of required certificates/documents")
-    application_steps: list[str] = Field(default_factory=list, description="Step-by-step application instructions")
-    application_url: Optional[str] = Field(default=None, description="Direct portal application URL")
-    official_sources: list[str] = Field(default_factory=list, description="List of all verified official source links")
+    id: str  # normalized unique scheme slug, e.g., 'karnataka-ssp-post-matric'
+    name: str  # official scheme title
+    summary: Optional[str] = None  # plain-language 2-sentence summary of the scheme
+    government_level: Optional[str] = "state"  # "state" | "central"
+    department: Optional[str] = None  # administering department (e.g. Social Welfare Department)
+    target_group: list[str] = Field(default_factory=list)
+    eligibility_text: Optional[str] = None  # raw text for normalizer LLM extraction pass
+    requirements: list[Requirement] = Field(default_factory=list)
+    benefit: Any = None  # verified monetary or physical benefit amount
+    documents: list[DocumentRequirement] = Field(default_factory=list)
+    application_steps: list[str] = Field(default_factory=list)
+    application_url: Optional[str] = None
+    deadline: Optional[str] = None  # ISO date (YYYY-MM-DD), only if verified
+    deadline_source_url: Optional[str] = None
+    official_sources: list[str] = Field(default_factory=list)  # verified official source links (.gov.in / .nic.in)
     verification_status: Literal["verified", "not_verified", "uncertain"] = "not_verified"
-    uncertainties: list[str] = Field(default_factory=list, description="Explicit notes on missing or ambiguous guidelines")
+    uncertainties: list[str] = Field(default_factory=list)
     source_type: Literal["live_search", "fallback"] = "live_search"
 ```
+
+> [!IMPORTANT]
+> **Contract Rules for Member 1:**
+> 1. **Documents must be objects** `{name, source_url, evidence}`, not plain strings. Plain strings have no source, so they will be left out of the action plan by Agent 3 (resulting in an empty checklist).
+> 2. **Attribute IDs must match `member2/attributes.py`** (e.g., `domicile_karnataka`, NOT `karnataka_domicile`).
+> 3. **Operators** must use `is_true` / `is_false` instead of `"boolean"`. Supported: `eq`, `neq`, `in`, `not_in`, `lt`, `lte`, `gt`, `gte`, `is_true`, `is_false`.
+> 4. **Requirement status** on extraction is only `verified | unverified | uncertain`. `needs_clarification` is an assessment result produced by Agent 2, not an extraction status.
+> 5. **JSON Contract Verification:** Member 1 can test candidate schemes against the contract using:
+>    ```bash
+>    python -m member2.check_member1 path/to/schemes.json
+>    ```
 
 ### 2.2 System Prompt & Extraction Schema
 
@@ -88,21 +129,29 @@ Your mission is to take raw web search excerpts / official guidelines and parse 
 STRICT ACCURACY RULES:
 1. NEVER invent eligibility criteria, income thresholds, or document requirements. If a criterion is not explicitly stated in the source text, do NOT assume it.
 2. For every requirement, you MUST extract the exact sentence as 'evidence' and provide the 'source_url'.
-3. Map requirements to standard canonical attribute names:
+3. Map requirements to standard canonical attribute names from member2/attributes.py:
    - 'annual_family_income' (INR per year)
-   - 'karnataka_domicile' (boolean)
-   - 'caste_category' (e.g., 'SC', 'ST', 'Cat-1', '2A', '2B', '3A', '3B', 'General')
+   - 'domicile_karnataka' (boolean, is_true)
+   - 'social_category' (e.g., 'SC', 'ST', 'OBC', 'General')
    - 'age' (integer)
-   - 'education_level' (e.g., 'post_matric', 'undergraduate', 'diploma')
-   - 'marks_percentage' (float)
-4. If the page does not clarify whether an income threshold is for Rural or Urban, set status to 'needs_clarification' and record the uncertainty.
+   - 'education_level' (e.g., 'Class 10', 'Class 12', 'Diploma', 'Undergraduate', 'Postgraduate', 'Not studying')
+   - 'course_type' (e.g., 'Engineering', 'Medical', 'Arts/Science/Commerce', 'Other')
+   - 'year_of_study' (integer)
+   - 'institution_type' (e.g., 'Government', 'Aided', 'Private')
+   - 'is_minority' (boolean, is_true)
+   - 'has_disability' (boolean, is_true)
+   - 'employment_status' (e.g., 'Student', 'Employed', 'Self-employed', 'Unemployed')
+   - 'previous_year_marks_percent' (float, percentage)
+   - 'residence_area' (e.g., 'Rural', 'Urban')
+   - 'household_card_type' (e.g., 'BPL', 'APL', 'Antyodaya', 'None')
+4. If a document is required, provide its name, the page source URL, and the verbatim excerpt as evidence.
 5. If the source is not an official .gov.in or .nic.in domain, mark verification_status as 'uncertain'.
 ```
 
 ### 2.3 Few-Shot Extraction Example
 
 **Input Text (Snippet from Karnataka State Scholarship Portal guidelines):**
-> "State Scholarship Portal (SSP) Post-Matric: Eligible students belonging to Scheduled Caste (SC) and Scheduled Tribe (ST) whose parents' annual income is less than or equal to Rs. 2,50,000/- per annum can apply online through https://ssp.postmatric.karnataka.gov.in. Compulsory documents include Aadhaar, Caste & Income Certificate (RD Number), and College Registration Number."
+> "State Scholarship Portal (SSP) Post-Matric: Eligible students belonging to Scheduled Caste (SC) and Scheduled Tribe (ST) whose parents' annual income is less than or equal to Rs. 2,50,000/- per annum can apply online through https://ssp.postmatric.karnataka.gov.in. Compulsory documents include Aadhaar Card, Caste & Income Certificate (RD Number), and College Registration Number."
 
 **Output JSON:**
 ```json
@@ -115,7 +164,7 @@ STRICT ACCURACY RULES:
   "target_group": ["SC/ST students", "post-matric"],
   "requirements": [
     {
-      "id": "req_ssp_income_01",
+      "id": "karnataka-ssp-post-matric-scst_req_1",
       "attribute": "annual_family_income",
       "criterion": "Parents' annual income must be <= Rs. 2,50,000/- per annum",
       "operator": "lte",
@@ -125,8 +174,8 @@ STRICT ACCURACY RULES:
       "evidence": "whose parents' annual income is less than or equal to Rs. 2,50,000/- per annum"
     },
     {
-      "id": "req_ssp_caste_01",
-      "attribute": "caste_category",
+      "id": "karnataka-ssp-post-matric-scst_req_2",
+      "attribute": "social_category",
       "criterion": "Must belong to Scheduled Caste (SC) or Scheduled Tribe (ST)",
       "operator": "in",
       "value": ["SC", "ST"],
@@ -137,9 +186,21 @@ STRICT ACCURACY RULES:
   ],
   "benefit": "Maintenance allowance and fee reimbursement",
   "documents": [
-    "Aadhaar Card",
-    "Caste and Income Certificate (RD Number)",
-    "College Registration Number"
+    {
+      "name": "Aadhaar Card",
+      "source_url": "https://ssp.postmatric.karnataka.gov.in",
+      "evidence": "Compulsory documents include Aadhaar Card"
+    },
+    {
+      "name": "Income Certificate",
+      "source_url": "https://ssp.postmatric.karnataka.gov.in",
+      "evidence": "Caste & Income Certificate (RD Number)"
+    },
+    {
+      "name": "Admission Proof",
+      "source_url": "https://ssp.postmatric.karnataka.gov.in",
+      "evidence": "College Registration Number"
+    }
   ],
   "application_steps": [
     "Obtain RD number for Caste/Income certificate from Nadakacheri portal",
@@ -168,104 +229,143 @@ STRICT ACCURACY RULES:
 ### 3.1 Pydantic Data Contracts
 
 ```python
+from enum import Enum
 from typing import Literal, Optional, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
-class QuestionRecord(BaseModel):
-    id: str = Field(description="Stable unique ID, e.g., 'q_annual_family_income'")
-    attribute: str = Field(description="Underlying normalized attribute key")
-    question: str = Field(description="User-friendly civic question text")
-    input_type: Literal["number", "select", "radio", "boolean", "range", "text"]
-    options: list[str] = Field(default_factory=list, description="Dropdown/radio options if applicable")
-    why_asked: str = Field(description="Explains how this answer helps the search (e.g. 'Needed for 3 scholarships')")
-    related_scheme_ids: list[str] = Field(description="Schemes whose match status depends on this answer")
-    sensitivity: Literal["low", "medium", "high"] = Field(
-        default="low", description="Sensitivity of data (e.g., income=medium, religion/caste=high)"
-    )
-    status: Literal["unanswered", "answered", "skipped", "unknown"] = "unanswered"
-    user_answer: Optional[Any] = None
+class Sensitivity(str, Enum):
+    low = "low"
+    medium = "medium"
+    high = "high"
 
-class RequirementAssessment(BaseModel):
-    requirement_id: str
+class InputType(str, Enum):
+    number = "number"
+    range = "range"
+    select = "select"
+    boolean = "boolean"
+    text = "text"
+
+class RangeOption(BaseModel):
+    label: str  # UI band label, e.g. "Below ₹1 lakh", "₹1 lakh – ₹2.5 lakh"
+    min: Optional[float] = None
+    max: Optional[float] = None  # inclusive; None = open-ended
+
+class AnswerState(str, Enum):
+    unanswered = "unanswered"
+    answered = "answered"
+    skipped = "skipped"
+    unknown = "unknown"  # user said "not sure"
+    prefer_not_to_answer = "prefer_not_to_answer"
+
+class Answer(BaseModel):
     attribute: str
-    status: Literal["satisfied", "not_satisfied", "unknown", "needs_clarification", "unverified"]
+    state: AnswerState
+    value: Any = None  # only preserved when state == AnswerState.answered
+
+    @model_validator(mode="after")
+    def _drop_value_unless_answered(self) -> "Answer":
+        # A skipped answer must not carry a value that could later be compared.
+        if self.state != AnswerState.answered:
+            self.value = None
+        return self
+
+class Question(BaseModel):
+    id: str  # "q_" + attribute, e.g. "q_annual_family_income"
+    attribute: str  # underlying canonical attribute key
+    question: str  # user-friendly civic question text
+    input_type: InputType
+    options: list[str] = Field(default_factory=list)  # for select, or ["Yes", "No"] for boolean
+    ranges: list[RangeOption] = Field(default_factory=list)  # for input_type == range
+    required_for_assessment: bool = False
+    why_asked: str  # explains why this helps the search + scheme count
+    related_scheme_ids: list[str] = Field(default_factory=list)
+    sensitivity: Sensitivity
+    status: AnswerState = AnswerState.unanswered
+    allow_prefer_not_to_answer: bool = True
+
+class RequirementStatus(str, Enum):
+    satisfied = "satisfied"
+    not_satisfied = "not_satisfied"
+    unknown = "unknown"
+    needs_clarification = "needs_clarification"
+    unverified = "unverified"
+
+class RequirementResult(BaseModel):
+    requirement_id: str
+    attribute: Optional[str] = None
+    status: RequirementStatus
     reason: str
+    criterion: str
     source_url: Optional[str] = None
 
-class SchemeAssessment(BaseModel):
+class SchemeStatus(str, Enum):
+    potential_match = "potential_match"
+    more_information_needed = "more_information_needed"
+    not_yet_verified = "not_yet_verified"
+    unlikely_to_match = "unlikely_to_match"
+    uncertain = "uncertain"
+
+class Assessment(BaseModel):
     scheme_id: str
-    status: Literal["potential_match", "more_information_needed", "unlikely_to_match", "uncertain"]
+    status: SchemeStatus
     explanation: str
-    requirements: list[RequirementAssessment]
+    requirements: list[RequirementResult] = Field(default_factory=list)
+    missing_attributes: list[str] = Field(default_factory=list)
+    last_assessed_at: Optional[str] = None  # ISO timestamp (UTC)
 ```
 
-### 3.2 Consolidated Question Ranking Algorithm (Deterministic Python)
+> [!NOTE]
+> **Key Contract Changes (plan.md §5.2 / member2):**
+> 1. **Questions & Answers are Decoupled:** `Question` defines the form input; `Answer` represents the user's response or skip state.
+> 2. **Income Range Formatting:** Range answers are submitted as `{"min": n|null, "max": n|null}` or a band label string from `Question.ranges`.
+> 3. **Non-destructive Skip Representation:** "Not sure", skip, and "prefer not to answer" are stored as explicit `AnswerState` values, ensuring they are never coerced to false or zero.
 
-The algorithm operates on the candidate pool without calling an LLM:
+### 3.2 Question Generation & Reassessment Engine (`member2`)
+
+The eligibility verification and question ranking operate deterministically in Python:
 
 ```python
-def rank_and_deduplicate_questions(
-    schemes: list[SchemeRecord], 
-    known_user_context: dict[str, Any],
-    history_asked_ids: set[str],
-    batch_limit: int = 4
-) -> list[QuestionRecord]:
-    """
-    1. Collect all missing attributes across all schemes.
-    2. Exclude attributes already known or previously asked.
-    3. Score by scheme coverage and penalize sensitivity.
-    4. Return top batch_limit questions.
-    """
-    attribute_to_schemes = {}
-    for scheme in schemes:
-        for req in scheme.requirements:
-            attr = req.attribute
-            # Skip if user already answered this attribute
-            if attr in known_user_context and known_user_context[attr] is not None:
-                continue
-            if attr not in attribute_to_schemes:
-                attribute_to_schemes[attr] = set()
-            attribute_to_schemes[attr].add(scheme.id)
+from member2 import (
+    normalize_requirements,
+    assess_schemes,
+    reassess_schemes,
+    generate_consolidated_questions,
+    generate_scheme_questions,
+    apply_answers,
+)
 
-    scored_questions = []
-    for attr, scheme_ids in attribute_to_schemes.items():
-        q_id = f"q_{attr}"
-        if q_id in history_asked_ids:
-            continue
-            
-        coverage = len(scheme_ids)
-        sensitivity_penalty = 1 if attr in ["caste_category", "disability_status"] else 0
-        score = (coverage * 2) - sensitivity_penalty
-        
-        scored_questions.append((score, attr, list(scheme_ids)))
+# 1. Seed answers from the initial context form (status: answered)
+answers, history = apply_answers({}, {}, context_form_answers)
 
-    # Sort descending by score
-    scored_questions.sort(key=lambda x: x[0], reverse=True)
-    
-    top_candidates = scored_questions[:batch_limit]
-    batch = []
-    for score, attr, scheme_ids in top_candidates:
-        batch.append(build_question_definition(attr, scheme_ids))
-    return batch
+# 2. Score and pick top consolidated questions (defaults to 5)
+questions = generate_consolidated_questions(
+    schemes=normalized_schemes,
+    user_answers=answers,
+    question_history=history,
+    batch_size=5,
+    rephrase_llm=None  # optional: rephrase_llm=default_client()
+)
+
+# 3. Apply submitted answers/skips (returns updated copies; never mutates inputs)
+answers, history = apply_answers(answers, history, submitted_answers)
+
+# 4. Reassess schemes against updated answers
+assessments = reassess_schemes(normalized_schemes, answers)
 ```
 
-### 3.3 Question Generation & Assessment System Prompt
+**Question Scoring Formula:**
+$$\text{Score} = 10 \times N_{\text{schemes}} + 4 \times N_{\text{reqs}} - \text{Penalty}_{\text{sensitivity}} - \text{Effort}$$
+Where sensitivity penalty is 0 (low), 2 (medium), or 5 (high). Attribute questions already answered or previously asked in `history` are excluded from consolidated batches.
+
+### 3.3 Assessment Roll-Up Logic
 
 ```text
-You are the Eligibility Verification Agent for Unlocked.
-
-YOUR RULES FOR ASSESSING SCHEMES:
-1. 'satisfied': The user's answer clearly meets the criteria (e.g. user income is 1.5L and ceiling is 2.5L).
-2. 'not_satisfied': The user's answer conflicts directly with the criterion (e.g. user income is 3.5L and ceiling is 2.5L).
-3. 'unknown': The user skipped the question, chose 'prefer not to answer', or has not yet provided the information.
-   * CRITICAL: An 'unknown' requirement status results in scheme status 'more_information_needed'. It NEVER results in 'unlikely_to_match'.
-4. 'uncertain': The official rule itself is ambiguous or lacks verifiable documentation.
-
-Scheme-Level Overall Status Evaluation:
-- If ANY requirement is 'not_satisfied' -> 'unlikely_to_match'
-- If all evaluated requirements are 'satisfied' and none are 'unknown' -> 'potential_match'
-- If any requirement is 'unknown' and none are 'not_satisfied' -> 'more_information_needed'
-- If source evidence is missing -> 'uncertain'
+Deterministic Scheme-Level Status Evaluation:
+1. If ANY requirement is 'not_satisfied' -> 'unlikely_to_match'
+2. Else if ANY requirement is 'unknown' -> 'more_information_needed'
+3. Else if ANY requirement is 'needs_clarification' -> 'uncertain'
+4. Else if ANY requirement is 'unverified' or scheme verification is not verified -> 'not_yet_verified'
+5. Else (all verified requirements are satisfied) -> 'potential_match'
 ```
 
 ---
@@ -279,112 +379,73 @@ Scheme-Level Overall Status Evaluation:
 ### 4.1 Pydantic Data Contracts
 
 ```python
+from enum import Enum
 from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
-class DocumentTask(BaseModel):
-    id: str = Field(description="Canonical document ID (e.g. 'doc_rd_income_cert')")
-    name: str = Field(description="Name of document, e.g. 'Income & Caste Certificate (RD Number)'")
-    issuing_authority: str = Field(description="Authority, e.g. 'Nadakacheri / Revenue Department'")
-    prerequisites: list[str] = Field(default_factory=list, description="IDs of other tasks needed before this one")
-    unlocks_schemes: list[str] = Field(default_factory=list, description="Scheme IDs that require this document")
+class DocStatus(str, Enum):
+    have = "have"
+    obtained = "obtained"
+    needed = "needed"
+    unknown = "unknown"
+
+class ChecklistItem(BaseModel):
+    id: str  # document id, e.g. "doc_income_certificate", "doc_aadhaar_card"
+    name: str  # display title, e.g. "Income Certificate"
+    status: DocStatus  # "needed" | "have" | "obtained" | "unknown"
+    order: int  # 1-based sequential position in the prioritized action plan
+    required_by_scheme_ids: list[str] = Field(default_factory=list)
+    dependencies: list[str] = Field(default_factory=list)  # prerequisite document ids (plan §5.4)
     source_urls: list[str] = Field(default_factory=list)
-    status: Literal["needed", "in_progress", "obtained"] = "needed"
-    is_shared_prerequisite: bool = False
+    reason: str  # human-readable explanation, e.g. "Get this first: required before SSP e-Attestation."
+
+class GraphNode(BaseModel):
+    id: str
+    label: str
+    kind: Literal["document", "scheme"]
+
+class GraphEdge(BaseModel):
+    source: str
+    target: str
+    relation: Literal["required_for", "prerequisite_of"] = "required_for"
+    source_url: str = Field(min_length=1)  # edges without a source are never created
 
 class ActionPlan(BaseModel):
-    session_id: str
-    ordered_tasks: list[DocumentTask]
-    total_documents_needed: int
-    shared_prerequisites_count: int
+    checklist: list[ChecklistItem] = Field(default_factory=list)
+    nodes: list[GraphNode] = Field(default_factory=list)
+    edges: list[GraphEdge] = Field(default_factory=list)
+    shared_prerequisites: list[str] = Field(default_factory=list)  # doc ids required by 2+ schemes
+    explanation: str
+    warnings: list[str] = Field(default_factory=list)
+    excluded_documents: list[str] = Field(default_factory=list)  # names dropped for lacking a source
 ```
 
-### 4.2 Deterministic DAG & Topological Sort Implementation
+> [!NOTE]
+> **Key Contract Changes (plan.md §5.4 / member2):**
+> 1. **Checklist & DAG Graph:** `ActionPlan` provides an ordered `checklist: list[ChecklistItem]` and structured graph `nodes` and `edges` for the frontend. There is no `ordered_tasks` or `prerequisites` list.
+> 2. **Shared Prerequisites:** High-leverage documents that unlock 2 or more schemes are captured in `shared_prerequisites`.
+> 3. **Document Statuses:** User document possession is tracked via `user_documents: dict[str, "have" | "obtained" | "needed" | "unknown"]`.
+
+### 4.2 Deterministic DAG & Topological Sort (`member2`)
+
+The planning engine executes deterministic topological sorting using NetworkX:
 
 ```python
-from collections import defaultdict, deque
+from member2 import build_action_plan
 
-def build_deterministic_action_plan(
-    selected_schemes: list[SchemeRecord],
-    user_obtained_docs: set[str]
-) -> ActionPlan:
-    """
-    Constructs a prerequisite DAG from verified scheme document lists
-    and returns a topologically sorted, prioritized task list.
-    """
-    # 1. Standard Karnataka Document Prerequisites Knowledge Graph (verified)
-    KNOWN_PREREQUISITES = {
-        "doc_rd_income_cert": ["doc_aadhaar", "doc_ration_card"],
-        "doc_ssp_eattestation": ["doc_rd_income_cert", "doc_college_marks_card", "doc_aadhaar"],
-        "doc_domicile_cert": ["doc_aadhaar", "doc_school_study_cert"]
-    }
-    
-    # 2. Collect documents needed across all selected schemes
-    doc_to_schemes = defaultdict(set)
-    for s in selected_schemes:
-        for doc_name in s.documents:
-            doc_id = canonicalize_doc_id(doc_name)
-            if doc_id not in user_obtained_docs:
-                doc_to_schemes[doc_id].add(s.name)
-                
-    # 3. Build Adjacency List for DAG
-    graph = defaultdict(set)
-    in_degree = defaultdict(int)
-    all_needed_docs = set(doc_to_schemes.keys())
-    
-    # Expand with prerequisites
-    for doc_id in list(all_needed_docs):
-        for prereq in KNOWN_PREREQUISITES.get(doc_id, []):
-            if prereq not in user_obtained_docs:
-                all_needed_docs.add(prereq)
-                graph[prereq].add(doc_id)
-                in_degree[doc_id] += 1
-                
-    for doc in all_needed_docs:
-        if doc not in in_degree:
-            in_degree[doc] = 0
-
-    # 4. Kahn's Algorithm for Topological Sort
-    queue = deque([d for d in all_needed_docs if in_degree[d] == 0])
-    ordered_doc_ids = []
-    
-    while queue:
-        # Prioritize items that unlock more schemes
-        curr = queue.popleft()
-        ordered_doc_ids.append(curr)
-        
-        for neighbor in graph[curr]:
-            in_degree[neighbor] -= 1
-            if in_degree[neighbor] == 0:
-                queue.append(neighbor)
-                
-    # 5. Build structured task list
-    tasks = []
-    shared_count = 0
-    for doc_id in ordered_doc_ids:
-        unlocks = list(doc_to_schemes.get(doc_id, []))
-        is_shared = len(unlocks) > 1
-        if is_shared:
-            shared_count += 1
-        tasks.append(
-            DocumentTask(
-                id=doc_id,
-                name=get_human_name(doc_id),
-                issuing_authority=get_issuing_authority(doc_id),
-                prerequisites=KNOWN_PREREQUISITES.get(doc_id, []),
-                unlocks_schemes=unlocks,
-                is_shared_prerequisite=is_shared,
-                status="needed"
-            )
-        )
-        
-    return ActionPlan(
-        session_id="current",
-        ordered_tasks=tasks,
-        total_documents_needed=len(tasks),
-        shared_prerequisites_count=shared_count
-    )
+# IMPORTANT: Call with keyword arguments after selected_schemes!
+plan = build_action_plan(
+    selected_schemes=schemes,
+    user_documents={"doc_aadhaar_card": "have"},
+    assessments=assessments,
+)
 ```
+
+**Sorting Order Invariant:**
+- Documents already marked `have` or `obtained` do not block other tasks; their constraint edges are ignored by the topological sort and they are sequenced last in the checklist.
+- The remaining documents are sorted deterministically using Kahn's algorithm with tie-breaking:
+  $$\text{Sort Key} = (\text{is\_done},\, -\text{schemes\_reachable},\, \text{earliest\_verified\_deadline},\, \text{doc\_id})$$
+- Graph cycles are automatically detected and broken with clear user warnings (`warnings`).
 
 ---
 
@@ -482,7 +543,9 @@ CREATE TABLE IF NOT EXISTS sessions (
     context_json TEXT NOT NULL,
     schemes_json TEXT,
     questions_json TEXT,
-    answers_json TEXT,
+    answers_json TEXT,        -- mapping of attribute -> Answer object (preserves skip/unknown state)
+    history_json TEXT,        -- mapping of question_id ("q_" + attr) -> AnswerState
+    user_documents_json TEXT, -- mapping of doc_id -> "have"|"obtained"|"needed"|"unknown"
     plan_json TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -492,40 +555,66 @@ CREATE TABLE IF NOT EXISTS sessions (
 ### 6.2 Master Orchestration Endpoints (`main.py` / `orchestrator.py`)
 
 ```python
+from member2 import (
+    default_client,
+    normalize_requirements,
+    assess_schemes,
+    reassess_schemes,
+    generate_consolidated_questions,
+    apply_answers,
+    build_action_plan,
+)
+
 @app.post("/api/sessions", response_model=SessionResponse)
 async def create_session(payload: CreateSessionRequest):
     session_id = str(uuid.uuid4())
-    await db.create_session(session_id, payload.context, payload.scope)
+    # 1. Seed answers and history from context form (status: answered)
+    initial_answers, initial_history = apply_answers({}, {}, payload.context)
+    await db.create_session(
+        session_id=session_id,
+        context=payload.context,
+        scope=payload.scope,
+        answers=initial_answers,
+        history=initial_history,
+    )
     return SessionResponse(session_id=session_id, status="initialized")
 
 @app.post("/api/discover")
 async def run_discovery(session_id: str):
     session = await db.get_session(session_id)
-    # Member 1 Discovery module
-    schemes = await discovery_agent.discover_schemes(session.context, session.scope)
-    await db.save_schemes(session_id, schemes)
+    # 1. Member 1: Discovery module
+    raw_schemes = await discovery_agent.discover_schemes(session.context, session.scope)
     
-    # Member 2 Initial assessment & question generation
-    req_matrix = eligibility_agent.normalize_requirements(schemes)
-    questions = eligibility_agent.rank_and_deduplicate_questions(schemes, session.context, set())
-    assessments = eligibility_agent.assess_schemes(schemes, session.context)
+    # 2. Member 2: Normalize once per discovery run with LLM; save normalized schemes!
+    # They carry the 'normalized_by' marker that prevents repeat LLM calls.
+    normalized_schemes = normalize_requirements(raw_schemes, llm=default_client())
+    await db.save_schemes(session_id, normalized_schemes)
+    
+    # 3. Assess with current answers and generate consolidated questions
+    assessments = assess_schemes(normalized_schemes, session.answers)
+    questions = generate_consolidated_questions(normalized_schemes, session.answers, session.history)
     
     await db.save_questions_and_assessments(session_id, questions, assessments)
-    return {"status": "discovery_complete", "schemes_count": len(schemes), "questions": questions}
+    return {"status": "discovery_complete", "schemes_count": len(normalized_schemes), "questions": questions}
 
 @app.post("/api/answers")
-async def submit_answers(session_id: str, answers: dict[str, Any]):
+async def submit_answers(session_id: str, submitted: list[dict[str, Any]]):
     session = await db.get_session(session_id)
-    # Save answers (including explicit skips/unknowns)
-    updated_context = {**session.context, **answers}
-    assessments = eligibility_agent.assess_schemes(session.schemes, updated_context)
-    await db.update_session_answers(session_id, updated_context, assessments)
+    # apply_answers updates states (answered, skipped, unknown) without losing state
+    updated_answers, updated_history = apply_answers(session.answers, session.history, submitted)
+    assessments = reassess_schemes(session.schemes, updated_answers)
+    await db.update_session_answers(session_id, updated_answers, updated_history, assessments)
     return {"status": "reassessed", "assessments": assessments}
 
 @app.get("/api/plan")
 async def get_action_plan(session_id: str):
     session = await db.get_session(session_id)
-    plan = planning_agent.build_deterministic_action_plan(session.schemes, set())
+    # Call build_action_plan with keyword arguments after selected_schemes
+    plan = build_action_plan(
+        session.schemes,
+        user_documents=session.user_documents,
+        assessments=session.assessments,
+    )
     await db.save_plan(session_id, plan)
     return plan
 ```

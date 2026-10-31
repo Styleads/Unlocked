@@ -34,6 +34,31 @@
    - Ordered task steps.
    - Shared prerequisite badge (e.g., "Unlocks 2 Schemes").
 
+> [!IMPORTANT]
+> **Data Contracts & Answer Submission Formats for Frontend (Member 4):**
+> 1. **Questions (`Question` model):**
+>    - `id`: Stable ID, e.g. `"q_annual_family_income"`.
+>    - `input_type`: `"number" | "range" | "select" | "boolean" | "text"`.
+>    - `options`: Dropdown/radio options (for `select`, or `["Yes", "No"]` for `boolean`).
+>    - `ranges`: Pre-defined bands for `input_type == range` (e.g. `[{"label": "Below ₹1 lakh", "min": 0, "max": 99999}, ...]`).
+>    - `why_asked`: Transparent civic explanation of why this question matters and how many schemes require it.
+> 2. **Submitting Answers (`POST /api/answers`):**
+>    Submit a list of answer objects:
+>    - **Range (Income):** Submit a band label from `Question.ranges` (e.g. `"Below ₹1 lakh"`) OR a dictionary `{"min": 100000, "max": 250000}`.
+>    - **Select:** Submit one of `Question.options` (case-insensitive, e.g. `"Aided"`).
+>    - **Boolean:** Submit `true` / `false` or `"Yes"` / `"No"`.
+>    - **Number:** Submit a number or clean string (e.g. `72.5`).
+>    - **Skips & Unknowns:** Send as explicit state objects:
+>      ```json
+>      {"attribute": "annual_family_income", "state": "skipped"}
+>      {"attribute": "domicile_karnataka", "state": "unknown"}
+>      {"attribute": "social_category", "state": "prefer_not_to_answer"}
+>      ```
+> 3. **Action Plan (`ActionPlan` model):**
+>    - `checklist`: Ordered list of `ChecklistItem` (each with `id`, `name`, `status`, `order`, `required_by_scheme_ids`, `dependencies`, `source_urls`, `reason`).
+>    - `shared_prerequisites`: List of document IDs required by 2+ schemes (badge in UI).
+>    - `nodes` & `edges`: Directed graph data for dependency visualization (`kind: "document" | "scheme"`).
+
 ### Mock-First Development Rule
 Do not wait for the backend to run. Build components immediately against mock JSON defined in [`docs/agents.md`](file:///home/kruthik/coding/Unlocked/docs/agents.md) and [`plan.md`](file:///home/kruthik/coding/Unlocked/plan.md). Once Member 3 stands up endpoints, swap out mock fixtures.
 
