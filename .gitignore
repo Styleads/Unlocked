@@ -71,3 +71,9 @@ logs/
 scratch/
 tmp/
 temp/
+
+# 8. Node & Frontend Artifacts
+node_modules/
+dist/
+*.tsbuildinfo
+
