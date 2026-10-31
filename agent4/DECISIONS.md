@@ -14,3 +14,4 @@
 10. **Progress is four independent facts**, each with `reported_at` and `simulated`. Follow-ups ask about the earliest implied-but-unknown stage. Contradictions are kept and warned about, never corrected.
 11. **Rejection next steps need verbatim evidence** from a provided guidance passage, a valid route (`correction | reapplication | appeal | clarification`), and a description with no unsourced numbers. A reason summary is shown only with a verified reason quote.
 12. **Logging:** task name, scheme id and exception type only.
+13. **`SchemeContext` uses `from_attributes=True`** so a member2 `SchemeRecord` object (what the backend holds) is accepted, not only its dict. Found when running Agent 4 on live canonical records: all entry points raised `ValidationError`.

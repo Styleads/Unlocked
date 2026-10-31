@@ -47,7 +47,9 @@ class ActionArtifact(BaseModel):
 class SchemeContext(BaseModel):
     """The scheme fields Agent 4 reads. Extra fields are ignored, not rejected."""
 
-    model_config = ConfigDict(extra="ignore")
+    # from_attributes: accept a member2 SchemeRecord (or any object with these
+    # attributes) as well as a dict, without importing member2.
+    model_config = ConfigDict(extra="ignore", from_attributes=True)
 
     id: str
     name: str
