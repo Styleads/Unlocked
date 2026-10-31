@@ -67,8 +67,8 @@ Rules:
   return one item per group and add "when": {{"attribute": ..., "operator": ..., "value": ...}}
   naming the group, e.g. {{"attribute": "social_category", "operator": "in", "value": ["SC", "ST"]}}.
 - "extracted" lists rules found in "eligibility_text" (empty if none is given).
-- Every item with a value also gives "value_quote": the exact words of the evidence that
-  state that value, copied verbatim (e.g. the words naming the group, the year or the amount).
+- Every item (yes/no attributes included) also gives "value_quote": the exact words of the
+  evidence that state it, copied verbatim (e.g. the words naming the group, the year or the amount).
   A "when" also gives its own "quote".
 - Set "restricts": false on a statement that excludes nobody (it is then dropped).
 """
@@ -177,7 +177,10 @@ def _numbers_in_value(value: Any) -> list[float]:
 
 
 def _words(text: str) -> str:
-    return " " + re.sub(r"[^a-z0-9.]+", " ", (text or "").casefold()).strip() + " "
+    # Keep dots only inside tokens ("b.sc", "2.5"); a sentence-ending dot is punctuation.
+    t = re.sub(r"[^a-z0-9.]+", " ", (text or "").casefold())
+    t = re.sub(r"(?<![a-z0-9])\.|\.(?![a-z0-9])", " ", t)
+    return " " + " ".join(t.split()) + " "
 
 
 def _phrase_in(evidence: Optional[str], phrase: Optional[str]) -> bool:
@@ -196,22 +199,49 @@ def _value_check(attr: str, op: Optional[Operator], value: Any, quote: Optional[
                  evidence: Optional[str]) -> tuple[bool, list[tuple[str, Any]]]:
     """Is the value stated in the evidence? Returns (ok_so_far, to_confirm):
     to_confirm lists (phrase, value) pairs whose meaning an independent model
-    check must confirm, e.g. ("girl students", "Female"), ("first year", 1)."""
-    if op is None or op in (Operator.is_true, Operator.is_false) or value is None:
+    check must confirm, e.g. ("girl students", "Female"), ("first year", 1).
+
+    Yes/no and free-text attributes are always confirmed: for them the risk is
+    the attribute itself ("not availing any other old age pension" is not
+    "receiving another scholarship"; "coastal districts" is not a district)."""
+    if op is None:
+        return True, []
+    if is_canonical(attr) and op in (Operator.is_true, Operator.is_false):
+        if not quote or not _phrase_in(evidence, quote):
+            return False, []
+        return True, [(quote, "yes" if op == Operator.is_true else "no")]
+    if value is None:
         return True, []
     items = value if isinstance(value, list) else [value]
     numeric = all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in items)
+    free_text = is_canonical(attr) and ATTRIBUTES[attr].input_type == InputType.text
     if not quote or not _phrase_in(evidence, quote):
         # No usable pointer: accept only what the evidence states literally.
         if numeric:
             return _numbers_supported(value, evidence), []
-        return all(_literal(v, evidence) for v in items), []
+        return (not free_text) and all(_literal(v, evidence) for v in items), []
     if numeric:
         if _numbers_in_text(quote):
             return _numbers_supported(value, quote), []
         return True, [(quote, v) for v in items]  # number written in words
-    pending = [(quote, v) for v in items if not _literal(v, quote)]
+    pending = [(quote, v) for v in items if free_text or not _literal(v, quote)]
     return True, pending
+
+
+def _label_of(attr: str) -> str:
+    return ATTRIBUTES[attr].label if attr in ATTRIBUTES else attr
+
+
+def _attribute_doubtful(attr: str) -> bool:
+    """Attributes where a rejected meaning means the attribute was wrong, so the
+    rule should become the scheme's own yes/no condition rather than uncertain."""
+    return is_canonical(attr) and ATTRIBUTES[attr].input_type in (InputType.boolean, InputType.text)
+
+
+def _as_own_condition(part: Requirement, phrase: str) -> Requirement:
+    """Re-express a rule whose attribute didn't fit as a quoted yes/no condition."""
+    return part.model_copy(update={"attribute": f"unmapped:{_slug(phrase)}", "operator": None, "value": phrase,
+                                   "condition": None, "uncertain_reason": None})
 
 
 def _unused_thresholds(parts: list[Requirement], evidence: Optional[str]) -> bool:
@@ -403,7 +433,6 @@ def _llm_pass(scheme: SchemeRecord, llm: LLMClient) -> SchemeRecord:
                                if is_canonical(c_attr) and c_op is not None else (False, []))
             if c_ok:
                 condition = RuleCondition(attribute=c_attr, operator=c_op, value=c_value)
-                pending += c_pending
             elif status == RequirementVerification.verified:
                 # The group is unreadable or unsupported: the rule must not decide anything.
                 status, reason, pending = RequirementVerification.uncertain, "not_stated", []
@@ -411,16 +440,22 @@ def _llm_pass(scheme: SchemeRecord, llm: LLMClient) -> SchemeRecord:
                   "status": status, "condition": condition, LLM_MARK: "structured"}
         if reason:
             update["uncertain_reason"] = reason
-        to_confirm += [(req.id, len(parts), phrase, v) for phrase, v in pending]
+        # (rid, part index, label, phrase, value, is_group_check)
+        to_confirm += [(req.id, len(parts), _label_of(attr), phrase, v, False) for phrase, v in pending]
+        if condition is not None:
+            to_confirm += [(req.id, len(parts), _label_of(c_attr), phrase, v, True) for phrase, v in c_pending]
         parts.append(req.model_copy(update=update))
 
     # Meanings the cited words don't state literally ("girl students" = Female,
     # "first year" = 1) are confirmed by an independent call; unconfirmed -> uncertain.
-    rejected = _confirm_meanings(llm, [(ATTRIBUTES[p_attr].label if (p_attr := structured[rid][i].attribute) in ATTRIBUTES
-                                        else p_attr, phrase, v) for rid, i, phrase, v in to_confirm])
-    for (rid, i, _, _), bad in zip(to_confirm, rejected):
+    rejected = _confirm_meanings(llm, [(label, phrase, v) for _, _, label, phrase, v, _ in to_confirm])
+    for (rid, i, _, phrase, _, group), bad in zip(to_confirm, rejected):
         part = structured[rid][i]
-        if bad and part.status == RequirementVerification.verified:
+        if not bad or part.status != RequirementVerification.verified:
+            continue
+        if not group and _attribute_doubtful(part.attribute):
+            structured[rid][i] = _as_own_condition(part, phrase)
+        else:
             structured[rid][i] = part.model_copy(update={"status": RequirementVerification.uncertain,
                                                          "uncertain_reason": "not_stated"})
 
@@ -480,10 +515,14 @@ def _llm_pass(scheme: SchemeRecord, llm: LLMClient) -> SchemeRecord:
                 id=f"{scheme.id}_req_{n}", attribute=attr, criterion=criterion, operator=op, value=value,
                 status=status, source_url=source, evidence=evidence, **{LLM_MARK: "extracted"}, **extra,
             ))
-        rejected = _confirm_meanings(llm, [(ATTRIBUTES[extracted[i].attribute].label, phrase, v)
+        rejected = _confirm_meanings(llm, [(_label_of(extracted[i].attribute), phrase, v)
                                            for i, phrase, v in ex_confirm])
-        for (i, _, _), bad in zip(ex_confirm, rejected):
-            if bad and extracted[i].status == RequirementVerification.verified:
+        for (i, phrase, _), bad in zip(ex_confirm, rejected):
+            if not bad or extracted[i].status != RequirementVerification.verified:
+                continue
+            if _attribute_doubtful(extracted[i].attribute):
+                extracted[i] = _as_own_condition(extracted[i], phrase)
+            else:
                 extracted[i] = extracted[i].model_copy(update={"status": RequirementVerification.uncertain,
                                                                "uncertain_reason": "not_stated"})
         reqs += extracted

@@ -264,3 +264,60 @@ def test_announcement_link_text_can_be_quoted():
     from discovery_agent.scheme_extractor import verbatim_evidence
     quote = "3. Demo C.V. Science Scholarship - Applications are invited from eligible minority students"
     assert verbatim_evidence(quote, URL_A, {URL_A: {"content": block}})
+
+
+def test_fallback_is_filtered_by_profile():
+    from discovery_agent.discovery_pipeline import load_fallback_schemes
+    farmer = load_fallback_schemes({"employment": {"occupation": "farmer"}, "interests": ["crop insurance"]})
+    assert farmer and all(s.relevance in ("direct_match", "related") for s in farmer)
+    jobseeker = load_fallback_schemes({"employment": {"occupation": "unemployed"},
+                                       "interests": ["disability pension and assistance"]})
+    assert jobseeker == []  # unrelated saved schemes are not shown
+    assert len(load_fallback_schemes({"state": "Karnataka"})) == len(load_fallback_schemes({}))  # no signal: no filter
+
+
+GRANT_PAGE = """\
+**Demo Elder Care Grant:**
+Grants are released to registered NGOs and voluntary organisations for running day-care centres.
+Organisations must be registered for at least three years.
+"""
+
+
+def test_beneficiary_type_recorded_only_with_a_real_quote():
+    url = "https://example.gov.in/grant"
+    data = {"eligibility_criteria": [{"description": "Registered 3 years", "source_url": url, "kind": "eligibility",
+                                      "evidence": "Organisations must be registered for at least three years."}],
+            "documents": [],
+            "beneficiary": {"type": "organisation", "source_url": url,
+                            "evidence": "Grants are released to registered NGOs and voluntary organisations for running day-care centres."}}
+    scheme = {"id": "demo_grant", "name": "Demo Elder Care Grant", "documents": []}
+    assert enrich_scheme(_Seq(data, {"documents": []}), "m", scheme, _search([(url, GRANT_PAGE)]))
+    assert scheme["beneficiary_type"] == "organisation"
+
+    invented = dict(data, beneficiary={"type": "organisation", "source_url": url, "evidence": "Only for companies."})
+    scheme2 = {"id": "demo_grant", "name": "Demo Elder Care Grant", "documents": []}
+    enrich_scheme(_Seq(invented, {"documents": []}), "m", scheme2, _search([(url, GRANT_PAGE)]))
+    assert "beneficiary_type" not in scheme2
+
+
+def test_organisation_schemes_left_out_and_budget_respected(monkeypatch):
+    import asyncio, time
+    from discovery_agent import discovery_pipeline as pipeline
+    import discovery_agent.scheme_details as sd
+
+    def fake_enrich(client, model, record, search):
+        if record["id"] == "slow":
+            time.sleep(2)
+            record["eligibility_criteria"] = ["should never appear"]
+            return True
+        record["beneficiary_type"] = "organisation" if record["id"] == "ngo" else "individual"
+        return True
+
+    monkeypatch.setattr(sd, "enrich_scheme", fake_enrich)
+    monkeypatch.setenv("DISCOVERY_DETAIL_BUDGET_S", "1")
+    records = [{"id": i, "name": i, "eligibility_criteria": [], "missing_information": []} for i in ("ngo", "person", "slow")]
+    asyncio.run(pipeline._enrich_details(object(), records))
+    by_id = {r["id"]: r for r in records}
+    assert by_id["slow"]["eligibility_criteria"] == []  # late result never applied
+    assert pipeline.UNCHECKED_NOTE in by_id["slow"]["missing_information"]
+    assert by_id["ngo"]["beneficiary_type"] == "organisation" and by_id["person"]["beneficiary_type"] == "individual"

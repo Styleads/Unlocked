@@ -450,8 +450,9 @@ def classify_relevance(scheme, user_context):
     if not isinstance(employment, dict):
         employment = {}
 
+    # The API stores a nested profile; direct callers may pass it flat.
     occupation = normalize_text(
-        employment.get("occupation", "")
+        employment.get("occupation") or user_context.get("occupation") or ""
     )
 
     interests = user_context.get("interests", [])

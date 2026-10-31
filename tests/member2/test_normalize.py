@@ -510,3 +510,54 @@ def test_select_covering_every_option_is_dropped():
     out, _ = _cited("Students of every category are eligible.",
                     [{"id": "r1", "attribute": "social_category", "operator": "in", "value": every}])
     assert out.requirements == []
+
+
+# --- the attribute itself must fit (live cross-domain findings) --------------
+
+def test_wrong_yes_no_attribute_becomes_own_condition():
+    text = "Applicants are not availing any other old age pension or destitute widow pension."
+    out, llm = _cited(text, [{"id": "r1", "attribute": "receives_other_scholarship", "operator": "is_false",
+                              "value_quote": "not availing any other old age pension"}],
+                      {"results": {"0": False}})  # "old age pension" is not "another scholarship"
+    r = out.requirements[0]
+    assert r.attribute == "unmapped:not_availing_any_other_old_age_pension" and r.operator is None
+    assert r.value == "not availing any other old age pension" and r.status == V.verified
+    assert json.loads(llm.calls[1][1])["items"][0]["attribute"] == "Receiving another scholarship"
+
+
+def test_confirmed_yes_no_attribute_is_kept():
+    text = "Students who receive any other scholarship are not eligible."
+    out, _ = _cited(text, [{"id": "r1", "attribute": "receives_other_scholarship", "operator": "is_false",
+                            "value_quote": "receive any other scholarship are not eligible"}],
+                    {"results": {"0": True}})
+    assert out.requirements[0].attribute == "receives_other_scholarship"
+    assert out.requirements[0].status == V.verified
+
+
+def test_yes_no_attribute_without_cited_words_is_uncertain():
+    out, _ = _cited("Must be a permanent resident of Karnataka.",
+                    [{"id": "r1", "attribute": "domicile_karnataka", "operator": "is_true"}])
+    assert out.requirements[0].status == V.uncertain
+
+
+def test_place_category_is_not_a_district():
+    text = "All registered motor fishing boats at coastal districts will be covered."
+    out, _ = _cited(text, [{"id": "r1", "attribute": "district", "operator": "eq", "value": "coastal districts",
+                            "value_quote": "coastal districts"}],
+                    {"results": {"0": False}})  # literal match alone isn't enough for free text
+    assert out.requirements[0].attribute.startswith("unmapped:") and out.requirements[0].operator is None
+
+
+def test_rejected_group_makes_rule_uncertain_not_own_condition():
+    text = "Specially challenged persons aged 14 to 50 years."
+    out, llm = _cited(text, [
+        {"id": "r1", "attribute": "age", "operator": "gte", "value": 14, "value_quote": "14 to 50 years",
+         "when": {"attribute": "has_disability", "operator": "is_true", "quote": "Specially challenged persons"}}],
+        {"results": {"0": False}})
+    r = out.requirements[0]
+    assert r.attribute == "age" and r.status == V.uncertain
+    assert json.loads(llm.calls[1][1])["items"][0]["attribute"] == ATTRIBUTE_LABEL_DISABILITY
+
+
+from member2.attributes import ATTRIBUTES as _ATTRS  # noqa: E402
+ATTRIBUTE_LABEL_DISABILITY = _ATTRS["has_disability"].label

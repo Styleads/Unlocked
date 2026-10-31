@@ -6,8 +6,10 @@ government benefit schemes relevant to a user's profile.
 """
 
 import asyncio
+import copy
 import logging
 import os
+from typing import Optional
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
@@ -220,6 +222,8 @@ def load_fallback_schemes(
     )
 
     all_fallbacks = get_fallback_schemes()
+    employment = user_context.get("employment") if isinstance(user_context.get("employment"), dict) else {}
+    has_signal = bool(employment.get("occupation") or user_context.get("occupation") or user_context.get("interests"))
 
     # Filter to potentially relevant schemes
     relevant = []
@@ -228,7 +232,12 @@ def load_fallback_schemes(
         relevance, reasons = classify_relevance(
             scheme_dict, user_context
         )
-        # Include direct matches and related schemes
+        # Include direct matches and related schemes only: an unrelated saved
+        # scheme (crop insurance for a jobseeker) is worse than "nothing found".
+        # A profile with no occupation or interests gives nothing to judge by,
+        # so nothing is filtered out.
+        if has_signal and relevance not in ("direct_match", "related"):
+            continue
         updated = scheme.model_copy(update={
             "relevance": relevance,
             "match_reasons": reasons,
@@ -241,6 +250,16 @@ def load_fallback_schemes(
 # --------------------------------------------------
 # 4b. Per-scheme detail pass (full eligibility from each scheme's own pages)
 # --------------------------------------------------
+
+def detail_budget_s() -> float:
+    """Seconds the per-scheme detail pass may take in total. Configurable with
+    DISCOVERY_DETAIL_BUDGET_S; schemes not finished in time keep their
+    first-pass record (and can't reach Potential match)."""
+    try:
+        return max(1.0, float(os.getenv("DISCOVERY_DETAIL_BUDGET_S", "45")))
+    except ValueError:
+        return 45.0
+
 
 UNCHECKED_NOTE = "We couldn't read this scheme's own official page, so its rules may be incomplete."
 DETAIL_MAX_SCHEMES = 10     # bounds cost: one search + one model call each
@@ -256,16 +275,33 @@ async def _enrich_details(client, records: list[dict]) -> None:
     order = sorted(range(len(records)), key=lambda i: _RELEVANCE_ORDER.get(records[i].get("relevance"), 3))
     gate = asyncio.Semaphore(DETAIL_CONCURRENCY)
 
-    async def one(i: int) -> bool:
+    async def one(i: int) -> tuple[bool, Optional[dict]]:
+        # Work on a copy: if the time budget cancels this task, its thread can't
+        # change a record that has already been returned.
+        draft = copy.deepcopy(records[i])
         async with gate:
             try:
-                return await asyncio.to_thread(enrich_scheme, client, MODEL, records[i], search_web)
+                ok = await asyncio.to_thread(enrich_scheme, client, MODEL, draft, search_web)
+                return ok, draft
             except Exception as error:
                 logger.warning("Detail pass failed for a scheme: %s", type(error).__name__)
-                return False
+                return False, None
 
     picked = order[:DETAIL_MAX_SCHEMES]
-    done = await asyncio.gather(*(one(i) for i in picked))
+    tasks = {i: asyncio.ensure_future(one(i)) for i in picked}
+    finished, late = await asyncio.wait(tasks.values(), timeout=detail_budget_s())
+    for task in late:
+        task.cancel()  # its thread may still finish, but writes only to a copy
+    done = []
+    for i in picked:
+        task = tasks[i]
+        ok, enriched = (task.result() if task in finished and not task.cancelled() else (False, None))
+        if ok and enriched is not None:
+            records[i].clear()
+            records[i].update(enriched)
+        done.append(ok)
+    if late:
+        logger.info("Detail pass time budget reached; %d scheme(s) left as first-pass records.", len(late))
     logger.info("Detail pass confirmed rules for %d of %d schemes.", sum(done), len(done))
 
     # A scheme whose own page was never read has rules from a summary at best
@@ -431,6 +467,13 @@ async def discover_schemes(
         records = [s.model_dump() if hasattr(s, "model_dump") else dict(s) for s in schemes]
         if deep_fetch and records:
             await _enrich_details(client, records)
+            # Schemes whose official page says they are for organisations or
+            # governments (grants to NGOs, states) are not shown to individuals.
+            from discovery_agent.scheme_details import NOT_FOR_INDIVIDUALS
+            kept = [r for r in records if r.get("beneficiary_type") not in NOT_FOR_INDIVIDUALS]
+            if len(kept) < len(records):
+                logger.info("Left out %d scheme(s) meant for organisations or governments.", len(records) - len(kept))
+            records = kept
 
         # Live records use Agent 1's schema; convert so every path returns
         # the same canonical type (fallbacks are already converted).

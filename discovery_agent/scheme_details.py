@@ -34,6 +34,9 @@ _HEADING = re.compile(r"^\s*(#{1,6}\s|\*\*[^*]{3,80}\*\*:?\s*$|[A-Z0-9][A-Z0-9 .
 _TABLE_ROW = re.compile(r"^\s*\|")
 _SERIAL_CELL = re.compile(r"^\d{1,3}\.?$")
 
+BENEFICIARY_TYPES = ("individual", "organisation", "government", "mixed")
+NOT_FOR_INDIVIDUALS = ("organisation", "government")
+
 DETAIL_INSTRUCTIONS = """
 You read the official text about ONE government scheme and list its rules.
 
@@ -51,6 +54,10 @@ RULES:
 6. If the blocks disagree with each other, list both versions.
 7. Skip statements that exclude nobody, e.g. "all courses",
    "students of all categories". They are not conditions.
+8. "beneficiary": who receives the benefit: "individual" (a person or
+   household), "organisation" (NGOs, institutions, companies), "government"
+   (states, departments, local bodies) or "mixed". Give the exact sentence
+   that shows it as "evidence" with its "source_url".
 
 Return JSON only:
 {
@@ -59,7 +66,8 @@ Return JSON only:
   ],
   "documents": [
     {"name": "", "source_url": "", "evidence": ""}
-  ]
+  ],
+  "beneficiary": {"type": "individual", "source_url": "", "evidence": ""}
 }
 """
 
@@ -169,6 +177,13 @@ def _merge(scheme: dict, data: dict, pages: dict[str, dict]) -> bool:
         return False  # keep what the first pass found; nothing better was confirmed
 
     scheme["eligibility_criteria"] = criteria
+    # Who the scheme is for, only when the model's quote is really on the page.
+    who = data.get("beneficiary") if isinstance(data.get("beneficiary"), dict) else {}
+    if who.get("type") in BENEFICIARY_TYPES:
+        quote = verbatim_evidence(who.get("evidence"), who.get("source_url"), pages)
+        if quote:
+            scheme["beneficiary_type"] = who["type"]
+            scheme["beneficiary_evidence"] = {"text": quote, "source_url": who["source_url"]}
     # The first pass may have noted these as missing; they are not any more.
     notes = scheme.get("missing_information") or []
     found = {"Eligibility criteria"}

@@ -222,6 +222,18 @@ _SPECS = [
         aliases=["other scholarship", "availing other scholarship", "any other scholarship"],
     ),
     AttributeSpec(
+        # Pensions domain (DECISIONS #67): old-age, widow and disability pensions
+        # usually exclude people already drawing another government pension.
+        id="receives_other_pension",
+        label="Receiving another government pension",
+        input_type=InputType.boolean,
+        sensitivity=Sensitivity.low,
+        effort=0,
+        question="Are you currently receiving any other pension from the government?",
+        why_template="Most pension schemes cannot be combined with another government pension.",
+        aliases=["other pension", "availing other pension", "any other pension"],
+    ),
+    AttributeSpec(
         id="residence_area",
         label="Rural or urban residence",
         input_type=InputType.select,
