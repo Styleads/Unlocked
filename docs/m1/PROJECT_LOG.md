@@ -257,4 +257,22 @@ uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
 5. **Interactive Script Cleanup**: Renamed `test_gemini.py` to `demo_gemini_interactive.py` to prevent pytest freezing on user inputs during test discovery.
 6. **Documentation Relocation**: Organized root audit documents into `docs/m1/` (`AUDIT_REPORT.md`, `DECISIONS.md`, `HANDOFF_MEMBER3.md`, `PROJECT_LOG.md`) and removed obsolete `Plan.md`.
 
+---
+
+## Session 7 — Central Orchestrator & Kannada Pipeline Verification
+1. **Orchestrator Integration**: Member 3's `api/orchestrator.py` wired in-process calls to `discover_schemes()` and `translate_schemes_to_kannada()`.
+2. **End-to-End Validation**: Verified that English and authentic Kannada translated schemes flow through `adapt_m1_to_m2_schemes()` into Member 2's `normalize_requirements()`, `assess_schemes()`, and `generate_consolidated_questions()`.
+3. **Automated Testing**: Validated in `tests/test_orchestrator.py` with 100% pass across bilingual discovery runs.
+
+---
+
+## Session 8 — Multi-Agent Unification & Full Suite Verification (455 Tests)
+1. **Branch Synchronization**: Work consolidated onto `backend` branch with Agent 4 (Action & Follow-Through) and Member 3 backend orchestrator.
+2. **Canonical Return Contract**: Confirmed `discover_schemes()` return contract automatically produces canonical `member2.models.SchemeRecord` records via `to_canonical_schemes()`.
+3. **Phase 8 Action Endpoints Mounted**: Member 3 mounted Agent 4 REST routes in `api/main.py` (`POST /api/sessions/{id}/actions/...`, `/progress`, `/rejection`, and standalone). Added `tests/test_api_actions.py`.
+4. **Full Suite Green**: 455 tests passing offline in 1.91s across all agent modules.
+5. **Backend Feature Freeze (Option A)**: Backend frozen in working, verified state ready for full frontend integration.
+
+
+
 

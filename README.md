@@ -57,7 +57,7 @@ Navigating government welfare systems in India is challenging due to fragmented 
 ### Architecture Status
 | Component | Status | Details |
 |---|---|---|
-| **Backend Orchestrator** | **In Progress (M3)** | FastAPI service & SQLite store orchestrating Discovery (M1) + Eligibility & Planning (M2) per `M3_Coding_Round_1_Plan.md` |
+| **Backend Orchestrator** | **Implemented (M3)** | FastAPI service & SQLite store orchestrating Discovery (M1), Eligibility & Planning (M2), and Action Artifacts (Agent 4) with 455 tests passing |
 | **Eligibility & Assessment** | **Implemented (M2)** | Normalization, comparators, cross-scheme question generation & ranking in `member2/` (282 tests) |
 | **Document Planning DAG** | **Implemented (M2)** | Topological prerequisite sort and action plan generator in `member2/` |
 | **Compliance Adapter** | **Implemented (M1)** | `discovery_agent/adapter.py` mapping extraction output to canonical M2 models |
