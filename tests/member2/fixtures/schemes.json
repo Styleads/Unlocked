@@ -1,0 +1,153 @@
+{
+  "_note": "FICTIONAL TEST DATA. These are not real schemes; names, thresholds and URLs are invented for tests only.",
+  "schemes": [
+    {
+      "id": "demo_scholarship_a",
+      "name": "Demo Scholarship A",
+      "summary": "Fictional scholarship used in tests.",
+      "government_level": "state",
+      "target_group": ["students"],
+      "requirements": [
+        {
+          "id": "demo_scholarship_a_req_1",
+          "attribute": "annual_family_income",
+          "criterion": "Annual family income must not exceed Rs 2,50,000.",
+          "operator": "lte",
+          "value": 250000,
+          "status": "verified",
+          "source_url": "https://example.gov.in/demo-a/guidelines",
+          "evidence": "Annual family income must not exceed Rs 2,50,000."
+        },
+        {
+          "id": "demo_scholarship_a_req_2",
+          "attribute": "domicile_karnataka",
+          "criterion": "The applicant must be a domicile of Karnataka.",
+          "operator": "is_true",
+          "value": null,
+          "status": "verified",
+          "source_url": "https://example.gov.in/demo-a/guidelines",
+          "evidence": "The applicant must be a domicile of Karnataka."
+        },
+        {
+          "id": "demo_scholarship_a_req_3",
+          "attribute": "education_level",
+          "criterion": "Open to students enrolled in an undergraduate or diploma course.",
+          "operator": "in",
+          "value": ["Undergraduate", "Diploma"],
+          "status": "verified",
+          "source_url": "https://example.gov.in/demo-a/guidelines",
+          "evidence": "Open to students enrolled in an undergraduate or diploma course."
+        }
+      ],
+      "documents": [
+        {"name": "Income Certificate", "source_url": "https://example.gov.in/demo-a/documents", "evidence": "Income Certificate"},
+        {"name": "Admission Letter", "source_url": "https://example.gov.in/demo-a/documents", "evidence": "Admission Letter"},
+        {"name": "Bank Passbook", "source_url": "https://example.gov.in/demo-a/documents", "evidence": "Bank Passbook"}
+      ],
+      "application_url": "https://example.gov.in/demo-a/apply",
+      "official_sources": ["https://example.gov.in/demo-a/guidelines"],
+      "verification_status": "verified",
+      "source_type": "fallback"
+    },
+    {
+      "id": "demo_fee_concession_b",
+      "name": "Demo Fee Concession B",
+      "summary": "Fictional fee concession used in tests.",
+      "government_level": "state",
+      "target_group": ["students"],
+      "requirements": [
+        {
+          "id": "demo_fee_concession_b_req_1",
+          "attribute": "annual_family_income",
+          "criterion": "Family income up to Rs 2,50,000 per year.",
+          "operator": "lte",
+          "value": 250000,
+          "status": "verified",
+          "source_url": "https://example.gov.in/demo-b/rules",
+          "evidence": "Family income up to Rs 2,50,000 per year."
+        },
+        {
+          "id": "demo_fee_concession_b_req_2",
+          "attribute": "institution_type",
+          "criterion": "Only for students of government or aided institutions.",
+          "operator": "in",
+          "value": ["Government", "Aided"],
+          "status": "verified",
+          "source_url": "https://example.gov.in/demo-b/rules",
+          "evidence": "Only for students of government or aided institutions."
+        }
+      ],
+      "documents": [
+        {"name": "income cert.", "source_url": "https://example.gov.in/demo-b/documents", "evidence": "income cert."},
+        {"name": "Fee Receipt", "source_url": "https://example.gov.in/demo-b/documents", "evidence": "Fee Receipt"},
+        {
+          "name": "Caste Certificate",
+          "source_url": "https://example.gov.in/demo-b/documents",
+          "evidence": "Caste Certificate",
+          "dependencies": [
+            {
+              "depends_on": "Domicile Certificate",
+              "source_url": "https://example.gov.in/demo-b/caste-certificate-process",
+              "evidence": "A Domicile Certificate must be produced before a Caste Certificate is issued."
+            }
+          ]
+        }
+      ],
+      "application_url": "https://example.gov.in/demo-b/apply",
+      "official_sources": ["https://example.gov.in/demo-b/rules"],
+      "verification_status": "verified",
+      "source_type": "fallback"
+    },
+    {
+      "id": "demo_merit_c",
+      "name": "Demo Merit Award C",
+      "summary": "Fictional merit award used in tests.",
+      "government_level": "state",
+      "target_group": ["students"],
+      "requirements": [
+        {
+          "id": "demo_merit_c_req_1",
+          "attribute": "previous_year_marks_percent",
+          "criterion": "Minimum 60% marks in the previous qualifying examination.",
+          "operator": "gte",
+          "value": 60,
+          "status": "verified",
+          "source_url": "https://example.gov.in/demo-c/notice",
+          "evidence": "Minimum 60% marks in the previous qualifying examination."
+        }
+      ],
+      "documents": [
+        {"name": "Previous Marksheet", "source_url": "https://example.gov.in/demo-c/notice", "evidence": "Previous Marksheet"},
+        {"name": "Recommendation Letter"}
+      ],
+      "official_sources": ["https://example.gov.in/demo-c/notice"],
+      "verification_status": "verified",
+      "source_type": "fallback"
+    },
+    {
+      "id": "demo_unverified_d",
+      "name": "Demo Support Scheme D",
+      "summary": "Fictional scheme found only on a secondary page.",
+      "government_level": "state",
+      "target_group": ["students"],
+      "eligibility_text": "Applicants must be 25 years of age or younger. Students from government institutions are preferred.",
+      "requirements": [
+        {
+          "id": "demo_unverified_d_req_1",
+          "attribute": "age",
+          "criterion": "Applicants must be 25 years of age or younger.",
+          "operator": "lte",
+          "value": 25,
+          "status": "unverified",
+          "source_url": null,
+          "evidence": null
+        }
+      ],
+      "documents": [],
+      "official_sources": [],
+      "verification_status": "not_verified",
+      "uncertainties": ["Found only on a secondary page; not confirmed on an official portal."],
+      "source_type": "fallback"
+    }
+  ]
+}

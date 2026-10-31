@@ -1,5 +1,69 @@
-﻿.env
+# ====================================================================
+# Project Unlocked — .gitignore
+# Prevents credentials, virtualenvs, cache, and PII from being committed
+# ====================================================================
+
+# 1. Environment & Credentials (CRITICAL SECURITY)
+.env
+.env.*
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+# Explicitly whitelist safe example templates
+!.env.example
+!.env.template
+
+# 2. Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# 3. Python Bytecode, Caches & Testing Artifacts
 __pycache__/
-*.pyc
-.vscode/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.pytest_cache
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+*.coverage
+nosetests.xml
+coverage.xml
+*.cover
+
+# 4. User Personal Information & Local Profiles (PII)
 user_profile.json
+*user_profile*.json
+profiles/
+user_data/
+*.profile.json
+
+# 5. IDEs & Editors
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+*~
+
+# 6. Operating System Artifacts
+Thumbs.db
+[Dd]esktop.ini
+.DS_Store
+$RECYCLE.BIN/
+
+# 7. Local Logs & Temporary Scratch Files
+*.log
+logs/
+scratch/
+tmp/
+temp/
