@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 import json
 import logging
 import re
+import time
 
 from pydantic import ValidationError
 
@@ -215,8 +216,21 @@ def generate_json(
                 "Gemini attempt %d/%d failed: %s",
                 attempt + 1, max_retries, type(error).__name__
             )
+            # Free-tier rate limits (HTTP 429 / RESOURCE_EXHAUSTED) clear in
+            # seconds; retrying instantly just fails again.
+            if attempt < max_retries - 1 and is_rate_limited(error):
+                _sleep(RATE_LIMIT_BACKOFF_S * (2 ** attempt))
 
     raise last_error  # type: ignore[misc]
+
+
+RATE_LIMIT_BACKOFF_S = 2.0
+_sleep = time.sleep  # replaced in tests
+
+
+def is_rate_limited(error: Exception) -> bool:
+    text = f"{getattr(error, 'code', '')} {error}".lower()
+    return "429" in text or "resource_exhausted" in text or "rate limit" in text or "quota" in text
 
 
 def parse_json_object(text) -> dict:

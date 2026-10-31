@@ -129,3 +129,137 @@ def test_enrich_is_best_effort():
     assert not enrich_scheme(_Client({"eligibility_criteria": [{"description": "x", "evidence": "nope", "source_url": URL_A}]}),
                              "m", scheme, _search([(URL_A, PAGE_MARKDOWN)]))
     assert scheme["eligibility_criteria"] == [{"description": "kept"}]
+
+
+def test_scheme_without_detail_check_cannot_be_potential_match(monkeypatch):
+    """A scheme verified only from a summary sentence is downgraded when its own
+    page couldn't be read, so member2 can't call it a Potential match."""
+    import asyncio
+    from discovery_agent import discovery_pipeline as pipeline
+    from member2 import assess_schemes
+
+    records = [{"id": "demo_sum", "name": "Demo Summary Scheme", "verification_status": "verified",
+                "eligibility_criteria": [{"description": "SC students", "related_attribute": "social_category",
+                                          "source_url": URL_A, "evidence": "Open to SC students.", "verification_status": "verified"}],
+                "missing_information": []}]
+    monkeypatch.setattr(pipeline, "search_web", lambda *a, **k: [])  # own page not found
+    asyncio.run(pipeline._enrich_details(object(), records))
+    assert records[0]["verification_status"] == "partially_verified"
+    assert pipeline.UNCHECKED_NOTE in records[0]["missing_information"]
+
+    canonical = to_canonical_scheme(records[0])
+    canonical.requirements[0].operator, canonical.requirements[0].value = "in", ["SC"]
+    status = assess_schemes([canonical], {"social_category": {"attribute": "social_category", "state": "answered", "value": "SC"}})[0].status
+    assert status.value == "not_yet_verified"
+
+
+def test_rate_limit_waits_before_retrying(monkeypatch):
+    from discovery_agent import scheme_extractor as ex
+
+    waits = []
+    monkeypatch.setattr(ex, "_sleep", waits.append)
+
+    class RateLimited(Exception):
+        code = 429
+
+    class Models:
+        calls = 0
+
+        def generate_content(self, **kwargs):
+            Models.calls += 1
+            if Models.calls < 3:
+                raise RateLimited("RESOURCE_EXHAUSTED")
+            return type("R", (), {"text": '{"ok": true}'})()
+
+    client = type("C", (), {"models": Models()})()
+    assert ex.generate_json(client, "m", "p") == {"ok": True}
+    assert waits == [2.0, 4.0]
+
+
+# --- #5 documents: own page keeps its sections; follow-up documents search ---
+
+OWN_URL = "https://example.gov.in/59/demo-cv-science-scholarship/en"
+OWN_PAGE = """\
+# Demo C.V. Science Scholarship
+### Eligibility
+Girl students studying B.Sc. in Government colleges are eligible.
+### Documents Required
+Caste certificate, income certificate and previous year marks card must be uploaded.
+#### Screen Reader Access
+The website complies with WCAG 2.0.
+"""
+DOCS_URL = "https://example.gov.in/portal/demo-guide"
+DOCS_PAGE = """\
+**Demo C.V. Science Scholarship - documents:**
+1. Aadhaar-seeded bank account passbook copy.
+2. Study certificate from the college principal.
+"""
+
+
+def test_own_page_keeps_eligibility_and_documents_sections():
+    (block,) = scheme_blocks(OWN_PAGE, NAME, whole_page=True)
+    assert "Girl students" in block and "previous year marks card" in block and "Screen Reader" not in block
+    # Without whole_page the "### Eligibility" heading right under the name ends the
+    # block at once, so a scheme's own page yielded nothing: why whole_page exists.
+    assert scheme_blocks(OWN_PAGE, NAME) == []
+
+
+class _Seq:
+    def __init__(self, *responses):
+        self.responses, self.models = list(responses), self
+
+    def generate_content(self, **kwargs):
+        return type("R", (), {"text": json.dumps(self.responses.pop(0))})()
+
+
+def test_documents_search_adds_only_quoted_documents():
+    detail = {"eligibility_criteria": [{"description": "Girls in B.Sc.", "source_url": OWN_URL, "kind": "eligibility",
+                                        "evidence": "Girl students studying B.Sc. in Government colleges are eligible."}],
+              "documents": []}
+    docs = {"documents": [
+        {"name": "Bank passbook copy", "source_url": DOCS_URL, "evidence": "1. Aadhaar-seeded bank account passbook copy."},
+        {"name": "Study certificate", "source_url": DOCS_URL, "evidence": "2. Study certificate from the college principal."},
+        {"name": "Ration card", "source_url": DOCS_URL, "evidence": "Ration card copy."},  # not on the page
+    ]}
+    calls = []
+
+    def search(query, n, include_raw=False):
+        calls.append(query)
+        if "documents required" in query:
+            return [{"url": DOCS_URL, "title": "Guide", "raw_content": DOCS_PAGE, "is_official": True}]
+        return [{"url": OWN_URL, "title": "Demo", "raw_content": OWN_PAGE.replace("Caste certificate", "Nothing"), "is_official": True}]
+
+    scheme = {"id": "demo_cv", "name": NAME, "missing_information": ["Required documents"]}
+    assert enrich_scheme(_Seq(detail, docs), "m", scheme, search)
+    assert calls == [f"{NAME} eligibility Karnataka", f"{NAME} documents required"]
+    assert [(d["name"], d["source_url"]) for d in scheme["documents"]] == [
+        ("Bank passbook copy", DOCS_URL), ("Study certificate", DOCS_URL)]
+    assert "Required documents" not in scheme["missing_information"]
+    assert DOCS_URL in {e["url"] for e in scheme["source_evidence"]}
+
+
+def test_no_documents_search_when_documents_already_sourced():
+    detail = {"eligibility_criteria": [{"description": "Girls in B.Sc.", "source_url": OWN_URL, "kind": "eligibility",
+                                        "evidence": "Girl students studying B.Sc. in Government colleges are eligible."}],
+              "documents": [{"name": "Marks card", "source_url": OWN_URL,
+                             "evidence": "Caste certificate, income certificate and previous year marks card must be uploaded."}]}
+    calls = []
+
+    def search(query, n, include_raw=False):
+        calls.append(query)
+        return [{"url": OWN_URL, "title": "Demo", "raw_content": OWN_PAGE, "is_official": True}]
+
+    scheme = {"id": "demo_cv", "name": NAME}
+    assert enrich_scheme(_Seq(detail), "m", scheme, search)
+    assert len(calls) == 1 and scheme["documents"][0]["source_url"] == OWN_URL
+
+
+def test_announcement_link_text_can_be_quoted():
+    page = ("[4 3 weeks ago 3. Demo C.V. Science Scholarship - Applications are invited from eligible minority students "
+            "[Last Date to Apply: 31.10.2026].](https://example.gov.in/299/online-applications)\n"
+            "[5 3 weeks ago Other scheme notice](https://example.gov.in/300/other)")
+    (block,) = scheme_blocks(page, NAME)
+    assert "https://" not in block
+    from discovery_agent.scheme_extractor import verbatim_evidence
+    quote = "3. Demo C.V. Science Scholarship - Applications are invited from eligible minority students"
+    assert verbatim_evidence(quote, URL_A, {URL_A: {"content": block}})

@@ -7,12 +7,13 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping, Optional, Union
 
-from .attributes import ATTRIBUTES, is_canonical
+from .attributes import ATTRIBUTES, is_canonical, is_condition
 from .comparators import evaluate
 from .models import (
     Answer,
     AnswerState,
     Assessment,
+    Operator,
     Requirement,
     RequirementResult,
     RequirementStatus,
@@ -49,7 +50,9 @@ def _as_scheme(scheme: SchemeInput) -> SchemeRecord:
 def _label(attribute: Optional[str]) -> str:
     # Lowercase only the first letter so proper nouns ("Karnataka") keep their case.
     spec = ATTRIBUTES.get(attribute or "")
-    return spec.label[0].lower() + spec.label[1:] if spec else "this detail"
+    if spec is None:
+        return "one of the scheme's own conditions" if is_condition(attribute) else "this detail"
+    return spec.label[0].lower() + spec.label[1:]
 
 
 def _end(text: str) -> str:
@@ -81,6 +84,15 @@ def assess_requirement(req: Requirement, user_answers: AnswersInput = None) -> R
         return _result(req, RequirementStatus.unverified, reason)
 
     if not mapped:
+        if is_condition(req.attribute):
+            # A scheme's own condition, asked as a yes/no question (DECISIONS #63).
+            own = answers.get(req.attribute)
+            status, _ = evaluate(Operator.is_true, None, own)
+            if status == RequirementStatus.unknown:
+                return _result(req, status, "We need to know whether this condition applies to you.")
+            if status == RequirementStatus.not_satisfied:
+                return _result(req, status, "You said this condition doesn't apply to you.")
+            return _result(req, status, "You said this condition applies to you.")
         return _result(req, RequirementStatus.needs_clarification, "We couldn't match this rule to a question we can ask.")
 
     cond = req.condition

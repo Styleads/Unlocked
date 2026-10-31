@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping, Optional, Union
 
 from .assess import AnswersInput, SchemeInput, _as_scheme, as_answer_map, assess_scheme, contradictory_requirement_ids
-from .attributes import ATTRIBUTES, AttributeSpec, is_canonical
+from .attributes import ATTRIBUTES, AttributeSpec, condition_spec, is_canonical, is_condition
 from .comparators import NOT_SURE_VALUES
 from .models import (
     Answer,
@@ -54,6 +54,12 @@ def _history(question_history: HistoryInput) -> dict[str, AnswerState]:
 class _Usage:
     scheme_ids: set[str] = field(default_factory=set)
     n_requirements: int = 0
+    text: str = ""  # for a scheme's own condition: the rule to quote in the question
+
+
+def _spec(attribute: str, use: Optional[_Usage] = None) -> AttributeSpec:
+    """Registry attribute, or a yes/no spec for a scheme's own condition."""
+    return ATTRIBUTES.get(attribute) or condition_spec(attribute, use.text if use else "")
 
 
 def _useful_usage(schemes: Iterable[SchemeRecord], answers: dict[str, Answer], *, skip_unlikely: bool = True) -> dict[str, _Usage]:
@@ -78,11 +84,24 @@ def _useful_usage(schemes: Iterable[SchemeRecord], answers: dict[str, Answer], *
                 if req.condition is not None and is_canonical(req.condition.attribute):
                     usage[req.condition.attribute].scheme_ids.add(scheme.id)
                     usage[req.condition.attribute].n_requirements += 1
+            elif (
+                req.status == RequirementVerification.verified
+                and is_condition(req.attribute)
+                and req.id not in conflicts
+            ):
+                use = usage[req.attribute]
+                use.scheme_ids.add(scheme.id)
+                use.n_requirements += 1
+                if not use.text:
+                    use.text = req.value if isinstance(req.value, str) and req.value.strip() else req.criterion
     return usage
 
 
 def _score(spec: AttributeSpec, use: _Usage) -> int:
-    return 10 * len(use.scheme_ids) + 4 * use.n_requirements - _SENSITIVITY_PENALTY[spec.sensitivity] - spec.effort
+    score = 10 * len(use.scheme_ids) + 4 * use.n_requirements - _SENSITIVITY_PENALTY[spec.sensitivity] - spec.effort
+    # A scheme's own condition matters to that scheme only: ask it after every
+    # shared question, so it doesn't crowd the first batches.
+    return score - 1000 if is_condition(spec.id) else score
 
 
 def _build(spec: AttributeSpec, use: _Usage, status: AnswerState) -> Question:
@@ -108,7 +127,7 @@ def _build(spec: AttributeSpec, use: _Usage, status: AnswerState) -> Question:
 
 
 def _rank(usage: dict[str, _Usage]) -> list[str]:
-    return sorted(usage, key=lambda a: (-_score(ATTRIBUTES[a], usage[a]), a))
+    return sorted(usage, key=lambda a: (-_score(_spec(a, usage[a]), usage[a]), a))
 
 
 def _rephrase(questions: list[Question], llm: Any) -> list[Question]:
@@ -116,7 +135,7 @@ def _rephrase(questions: list[Question], llm: Any) -> list[Question]:
     if not questions or llm is None:
         return questions
     # Legal-meaning questions (e.g. domicile) keep their registry wording.
-    pending = [q for q in questions if not ATTRIBUTES[q.attribute].keep_wording]
+    pending = [q for q in questions if not _spec(q.attribute).keep_wording]
     if not pending:
         return questions
     try:
@@ -158,7 +177,7 @@ def generate_consolidated_questions(
     }
     picked = _rank(candidates)[: max(batch_size, 0)]
     log.debug("consolidated questions: %s", picked)
-    return _rephrase([_build(ATTRIBUTES[a], candidates[a], AnswerState.unanswered) for a in picked], rephrase_llm)
+    return _rephrase([_build(_spec(a, candidates[a]), candidates[a], AnswerState.unanswered) for a in picked], rephrase_llm)
 
 
 def generate_scheme_questions(
@@ -181,7 +200,7 @@ def generate_scheme_questions(
             continue
         if state != AnswerState.unanswered and not include_skipped:
             continue
-        questions.append(_build(ATTRIBUTES[a], usage[a], state))
+        questions.append(_build(_spec(a, usage[a]), usage[a], state))
     return questions
 
 
@@ -236,7 +255,7 @@ def apply_answers(
     history = _history(question_history)
     for item in submitted:
         answer = item if isinstance(item, Answer) else Answer.model_validate(item)
-        spec = ATTRIBUTES.get(answer.attribute)
+        spec = ATTRIBUTES.get(answer.attribute) or (condition_spec(answer.attribute) if is_condition(answer.attribute) else None)
         if spec is None:
             log.warning("ignoring answer for unknown attribute %s", answer.attribute)
             continue

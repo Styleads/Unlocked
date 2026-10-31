@@ -62,6 +62,7 @@ Rules:
 - If a criterion states several conditions (e.g. income AND course AND college type),
   return one "structured" item per condition, all with the same id. Use attribute
   "unmapped" with a short name in "value" for a condition no attribute fits; never drop it.
+- Skip statements that exclude nobody, e.g. "all courses", "students of all categories".
 - If a condition applies only to one group (e.g. "65% for General, 60% for SC/ST"),
   return one item per group and add "when": {{"attribute": ..., "operator": ..., "value": ...}}
   naming the group, e.g. {{"attribute": "social_category", "operator": "in", "value": ["SC", "ST"]}}.
@@ -109,7 +110,30 @@ def _numbers_in_text(text: str) -> set[float]:
         found.add(n)
         if unit:
             found.add(n * _SCALE[unit.lower()])
+    # Ordinals and small number words: "first year" states year 1 (DECISIONS #64).
+    for word in re.findall(r"[a-z]+", (text or "").casefold()):
+        if word in _NUMBER_WORDS:
+            found.add(_NUMBER_WORDS[word])
     return found
+
+
+_NUMBER_WORDS = {
+    "first": 1.0, "second": 2.0, "third": 3.0, "fourth": 4.0, "fifth": 5.0,
+    "two": 2.0, "three": 3.0, "four": 4.0, "five": 5.0,
+}
+
+
+def _non_restrictive(attr: str, op: Optional[Operator], value: Any) -> bool:
+    """Statements that exclude nobody ("all courses", "students of all
+    categories") are not rules; kept, they block a scheme for no reason."""
+    if attr.startswith("unmapped:"):
+        name = (value if isinstance(value, str) else attr.split(":", 1)[1]).replace("_", " ").casefold().strip()
+        return name == "all" or name.startswith(("all ", "any ", "every "))
+    spec = ATTRIBUTES.get(attr)
+    if spec and spec.input_type == InputType.select and op == Operator.in_ and isinstance(value, list):
+        real = set(spec.options) - {"Other", "None", "Not studying"}
+        return real <= set(value)
+    return False
 
 
 def _numbers_in_value(value: Any) -> list[float]:
@@ -323,14 +347,17 @@ def _llm_pass(scheme: SchemeRecord, llm: LLMClient) -> SchemeRecord:
         unmapped_name = s.value if isinstance(s.value, str) and (s.attribute or "").strip().lower() == "unmapped" else None
         attr, op, value = _canonical_rule(unmapped_name or s.attribute, s.operator, s.value,
                                           f"{_slug(req.criterion)}_{len(parts) + 1}" if parts else _slug(req.criterion))
+        if _non_restrictive(attr, op, value if not unmapped_name else unmapped_name):
+            continue
         status = req.status
+        reason = None  # why a part is uncertain (DECISIONS #65)
         # Only a comparable rule carries a threshold; an unmapped part's value is a
         # name ("meritorious_puc2_list") whose digits are not a threshold.
         if status == RequirementVerification.verified and op is not None:
             evidence = req.evidence or req.criterion
             is_select = is_canonical(attr) and ATTRIBUTES[attr].input_type == InputType.select
             if not _numbers_supported(value, evidence) or (is_select and not _select_values_supported(value, evidence)):
-                status = RequirementVerification.uncertain
+                status, reason = RequirementVerification.uncertain, "not_stated"
         new_id = req.id
         if parts:  # second and later conditions get their own stable id
             k = len(parts) + 1
@@ -348,14 +375,17 @@ def _llm_pass(scheme: SchemeRecord, llm: LLMClient) -> SchemeRecord:
                 condition = RuleCondition(attribute=c_attr, operator=c_op, value=c_value)
             elif status == RequirementVerification.verified:
                 # The group is unreadable or unsupported: the rule must not decide anything.
-                status = RequirementVerification.uncertain
-        parts.append(req.model_copy(update={"id": new_id, "attribute": attr, "operator": op, "value": value,
-                                            "status": status, "condition": condition, LLM_MARK: "structured"}))
+                status, reason = RequirementVerification.uncertain, "not_stated"
+        update = {"id": new_id, "attribute": attr, "operator": op, "value": value,
+                  "status": status, "condition": condition, LLM_MARK: "structured"}
+        if reason:
+            update["uncertain_reason"] = reason
+        parts.append(req.model_copy(update=update))
 
     for rid, parts in structured.items():
         if _unused_thresholds(parts, by_id[rid].evidence or by_id[rid].criterion):
             structured[rid] = [
-                p.model_copy(update={"status": RequirementVerification.uncertain})
+                p.model_copy(update={"status": RequirementVerification.uncertain, "uncertain_reason": "group_limits"})
                 if p.status == RequirementVerification.verified and p.operator is not None else p
                 for p in parts
             ]
@@ -395,13 +425,14 @@ def _llm_pass(scheme: SchemeRecord, llm: LLMClient) -> SchemeRecord:
                 status = RequirementVerification.verified
             else:
                 status = RequirementVerification.uncertain
+            extra = {"uncertain_reason": "not_stated"} if status == RequirementVerification.uncertain else {}
             n += 1
             while f"{scheme.id}_req_{n}" in used_ids:
                 n += 1
             used_ids.add(f"{scheme.id}_req_{n}")
             reqs.append(Requirement(
                 id=f"{scheme.id}_req_{n}", attribute=attr, criterion=criterion, operator=op, value=value,
-                status=status, source_url=source, evidence=evidence, **{LLM_MARK: "extracted"},
+                status=status, source_url=source, evidence=evidence, **{LLM_MARK: "extracted"}, **extra,
             ))
 
     return scheme.model_copy(update={"requirements": reqs, "uncertainties": uncertainties})

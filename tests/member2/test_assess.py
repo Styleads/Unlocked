@@ -112,20 +112,31 @@ def test_not_satisfied_beats_unknown():
 
 
 def test_unknown_beats_needs_clarification():
-    s = scheme(req("r1", "age", "lte", 25), req("r2", "unmapped:hostel", "is_true", None))
+    s = scheme(req("r1", "age", "lte", 25), req("r2", "made_up_attribute", "is_true", None))
     assert assess_scheme(s, {}).status == S.more_information_needed
 
 
 def test_needs_clarification_beats_unverified():
-    s = scheme(req("r1", "unmapped:hostel", "is_true", None), req("r2", "age", "lte", 25, status="unverified"))
+    s = scheme(req("r1", "made_up_attribute", "is_true", None), req("r2", "age", "lte", 25, status="unverified"))
     assert assess_scheme(s, answered(age=20)).status == S.uncertain
 
 
 # --- requirement-level rules -------------------------------------------------
 
-@pytest.mark.parametrize("attribute", [None, "unmapped:hostel_resident", "made_up_attribute"])
+@pytest.mark.parametrize("attribute", [None, "made_up_attribute"])
 def test_unmapped_attribute_needs_clarification(attribute):
     assert assess_requirement(req("r1", attribute, "eq", "x"), {}).status == R.needs_clarification
+
+
+def test_scheme_own_condition_is_a_yes_no_question():
+    # unmapped:* is a verified rule no attribute fits; it is asked as yes/no (DECISIONS #63).
+    r = req("r1", "unmapped:hostel_resident", None, "not admitted to a government hostel")
+    assert assess_requirement(r, {}).status == R.unknown
+    assert assess_requirement(r, answered(**{"unmapped:hostel_resident": True})).status == R.satisfied
+    assert assess_requirement(r, answered(**{"unmapped:hostel_resident": False})).status == R.not_satisfied
+    a = assess_scheme(scheme(r), {})
+    assert a.status == S.more_information_needed and a.missing_attributes == ["unmapped:hostel_resident"]
+    assert "one of the scheme's own conditions" in a.explanation
 
 
 def test_missing_operator_on_verified_rule_needs_clarification():

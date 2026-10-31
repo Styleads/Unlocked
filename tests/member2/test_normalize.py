@@ -455,3 +455,27 @@ def test_small_counts_do_not_trigger_limit_warning():
     out = _one_rule(text, [{"id": "r1", "attribute": "year_of_study", "operator": "eq", "value": 1},
                            {"id": "r1", "attribute": "unmapped", "operator": None, "value": "two core science subjects"}])
     assert not any("different limits" in u for u in out.uncertainties)
+
+
+# --- number words and non-rules (live findings) -------------------------------
+
+def test_first_year_confirms_year_one():
+    text = "Admitted to the first year of B.Sc. programmes in Government and Aided Colleges."
+    out = _one_rule(text, [{"id": "r1", "attribute": "year_of_study", "operator": "eq", "value": 1}])
+    assert out.requirements[0].status == V.verified
+
+
+def test_statements_that_exclude_nobody_are_dropped():
+    text = "Only girl students belonging to Cat-I, II-A, II-B, III-A, III-B, GM are eligible for this scheme of all courses."
+    out = _one_rule(text, [
+        {"id": "r1", "attribute": "gender", "operator": "eq", "value": "Female"},
+        {"id": "r1", "attribute": "social_category", "operator": "in", "value": ["General", "SC", "ST", "OBC"]},
+        {"id": "r1", "attribute": "unmapped", "operator": None, "value": "all courses"},
+    ])
+    assert [(r.attribute, r.status) for r in out.requirements] == [("gender", V.verified)]
+
+
+def test_rule_that_is_only_a_non_restriction_disappears():
+    text = "This scholarship is open to students of all courses."
+    out = _one_rule(text, [{"id": "r1", "attribute": "unmapped", "operator": None, "value": "all courses"}])
+    assert out.requirements == []

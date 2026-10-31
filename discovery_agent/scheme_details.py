@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 MAX_PAGES_PER_SCHEME = 4
 SEARCH_RESULTS_PER_SCHEME = 8
 MAX_BLOCK_CHARS = 3500       # one scheme block on one page
+OWN_PAGE_CHARS = 6000        # a scheme's own page: eligibility + documents sections
 MAX_SCHEME_CHARS = 12000     # all blocks for one scheme, sent to the model
 
 # Lines that end a scheme block: page furniture common on gov.in sites.
@@ -52,6 +53,8 @@ RULES:
    refunds, renewal conditions, penalties).
 5. List every required document the same way.
 6. If the blocks disagree with each other, list both versions.
+7. Skip statements that exclude nobody, e.g. "all courses",
+   "students of all categories". They are not conditions.
 
 Return JSON only:
 {
@@ -97,10 +100,14 @@ def _clean_lines(raw: str) -> list[tuple[str, bool]]:
     return out
 
 
-def scheme_blocks(raw: str, scheme_name: str, max_chars: int = MAX_BLOCK_CHARS) -> list[str]:
+def scheme_blocks(raw: str, scheme_name: str, max_chars: int = MAX_BLOCK_CHARS, *, whole_page: bool = False) -> list[str]:
     """The parts of a page about this scheme, verbatim (whitespace and table
     pipes aside): from each line naming the scheme until a new heading, a new
-    table record, page furniture, or max_chars. At most two blocks."""
+    table record, page furniture, or max_chars. At most two blocks.
+
+    whole_page: the page is the scheme's own page, so its "Eligibility" and
+    "Documents required" headings belong to it: only page furniture ends the
+    block (DECISIONS: documents usually sit under their own heading)."""
     key = name_key(scheme_name)
     if len(key) < 6:
         return []
@@ -114,7 +121,9 @@ def scheme_blocks(raw: str, scheme_name: str, max_chars: int = MAX_BLOCK_CHARS) 
         block, size, j = [lines[i][0]], len(lines[i][0]), i + 1
         while j < len(lines):
             text, new_row = lines[j]
-            if new_row or _BOILERPLATE.match(text) or (_HEADING.match(text) and key not in _squash(text)):
+            if _BOILERPLATE.match(re.sub(r"^[#*\s]+", "", text)):  # "#### Screen Reader Access" too
+                break
+            if not whole_page and (new_row or (_HEADING.match(text) and key not in _squash(text))):
                 break
             if size + len(text) > max_chars:
                 break
@@ -123,9 +132,12 @@ def scheme_blocks(raw: str, scheme_name: str, max_chars: int = MAX_BLOCK_CHARS) 
             j += 1
         # A heading repeating the name with nothing under it is not a block.
         if len(block) > 1:
-            # Drop markdown emphasis so a quote like "This Scholarship is..." matches
-            # "**T**his Scholarship is..."; only formatting goes, never words.
-            blocks.append(re.sub(r"\*\*|__|`", "", "\n".join(block)))
+            # Drop markdown emphasis and link targets so a quote like "This Scholarship
+            # is..." matches "**T**his Scholarship is..." and an announcement link
+            # "[... Applications are invited ...](https://...)" reads as its text.
+            # Only formatting goes, never words.
+            text = re.sub(r"\]\((?:https?://|/)[^)\s]*\)", "]", "\n".join(block))
+            blocks.append(re.sub(r"\*\*|__|`", "", text))
         i = j
     return blocks
 
@@ -210,21 +222,44 @@ def enrich_scheme(
         logger.warning("Detail search failed for a scheme: %s", type(error).__name__)
         return False
 
+    pages = _collect_pages(results, name)
+    if not pages:
+        return False
+    prompt = (DETAIL_INSTRUCTIONS + "\n\nSCHEME: " + name
+              + "\n\nOFFICIAL BLOCKS:\n" + json.dumps(_payload(pages), ensure_ascii=False))
+    try:
+        data = generate_json(client, model, prompt)
+    except Exception as error:
+        logger.warning("Detail extraction failed for a scheme: %s", type(error).__name__)
+        return False
+    ok = _merge(scheme, data, pages)
+    # Document lists usually live on a separate page ("Documents required",
+    # the portal guide), so look once more if none was sourced.
+    if ok and not any(isinstance(d, dict) and d.get("source_url") for d in scheme.get("documents") or []):
+        _documents_pass(client, model, scheme, search)
+    return ok
+
+
+def _collect_pages(results: list[dict], name: str) -> dict[str, dict]:
+    """Official pages naming the scheme, cut to its block, fullest first."""
     pages: dict[str, dict] = {}
+    key = name_key(name)
     for result in results or []:
         url = result.get("url")
         if not isinstance(url, str) or url in pages or not result.get("is_official"):
             continue
-        blocks = scheme_blocks(result.get("raw_content") or "", name)
+        own_page = key in _squash(url) or key in _squash(result.get("title") or "")
+        blocks = scheme_blocks(result.get("raw_content") or "", name,
+                               OWN_PAGE_CHARS if own_page else MAX_BLOCK_CHARS, whole_page=own_page)
         if blocks:
             pages[url] = {"title": result.get("title", ""), "url": url, "content": "\n\n".join(blocks)}
-    if not pages:
-        return False
     # Prefer the pages that say the most about this scheme, not search order:
     # the fullest eligibility list was often the 4th or 5th result.
     ranked = sorted(pages.values(), key=lambda p: len(p["content"]), reverse=True)[:MAX_PAGES_PER_SCHEME]
-    pages = {p["url"]: p for p in ranked}
+    return {p["url"]: p for p in ranked}
 
+
+def _payload(pages: dict[str, dict]) -> list[dict]:
     payload, size = [], 0
     for page in pages.values():
         text = page["content"][: max(0, MAX_SCHEME_CHARS - size)]
@@ -232,12 +267,50 @@ def enrich_scheme(
             break
         payload.append({"url": page["url"], "text": text})
         size += len(text)
+    return payload
 
-    prompt = (DETAIL_INSTRUCTIONS + "\n\nSCHEME: " + name
-              + "\n\nOFFICIAL BLOCKS:\n" + json.dumps(payload, ensure_ascii=False))
+
+DOCUMENTS_INSTRUCTIONS = """
+You read official text about ONE government scheme and list the documents an
+applicant must submit. Use only the supplied blocks. For each document give
+"evidence": the exact sentence, list item or table cell that names it, copied
+character for character, and "source_url": the url of that block.
+Return JSON only: {"documents": [{"name": "", "source_url": "", "evidence": ""}]}
+"""
+
+
+def _documents_pass(client: Any, model: str, scheme: dict, search: Callable[..., list[dict]]) -> int:
+    """Search for the scheme's documents list and add the sourced ones.
+    Best-effort; returns how many sourced documents were added."""
+    name = scheme["name"]
     try:
-        data = generate_json(client, model, prompt)
+        results = search(f"{name} documents required", SEARCH_RESULTS_PER_SCHEME, include_raw=True)
+        pages = _collect_pages(results, name)
+        if not pages:
+            return 0
+        data = generate_json(client, model, DOCUMENTS_INSTRUCTIONS + "\n\nSCHEME: " + name
+                             + "\n\nOFFICIAL BLOCKS:\n" + json.dumps(_payload(pages), ensure_ascii=False))
     except Exception as error:
-        logger.warning("Detail extraction failed for a scheme: %s", type(error).__name__)
-        return False
-    return _merge(scheme, data, pages)
+        logger.warning("Documents pass failed for a scheme: %s", type(error).__name__)
+        return 0
+
+    found = []
+    for item in data.get("documents") or []:
+        if not isinstance(item, dict) or not isinstance(item.get("name"), str) or not item["name"].strip():
+            continue
+        url = item.get("source_url")
+        quote = verbatim_evidence(item.get("evidence"), url, pages)
+        if quote:
+            found.append({"name": item["name"].strip(), "source_url": url, "evidence": quote})
+    if not found:
+        return 0
+    names = {d["name"].casefold() for d in found}
+    keep = [d for d in scheme.get("documents") or [] if isinstance(d, dict) and str(d.get("name", "")).casefold() not in names]
+    scheme["documents"] = found + keep
+    scheme["required_documents"] = [d["name"] for d in scheme["documents"]]
+    evidence = scheme.setdefault("source_evidence", [])
+    known = {e.get("url") for e in evidence if isinstance(e, dict)}
+    for url in sorted({d["source_url"] for d in found} - known):
+        evidence.append({"title": pages[url]["title"], "url": url, "excerpt": pages[url]["content"][:2000], "is_official": True})
+    scheme["missing_information"] = [n for n in scheme.get("missing_information") or [] if n != "Required documents"]
+    return len(found)

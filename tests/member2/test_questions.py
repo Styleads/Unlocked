@@ -88,14 +88,32 @@ def test_unlikely_scheme_attributes_not_asked():
     assert qs == []
 
 
-def test_unmapped_and_contradictory_not_asked():
+def test_unreadable_and_contradictory_not_asked():
     s = scheme(
         "s1",
-        req("a", "unmapped:hostel"),
+        req("a", "made_up_attribute"),
         req("b", "annual_family_income", "lte", 250000),
         req("c", "annual_family_income", "lte", 300000),
     )
     assert generate_consolidated_questions([s], {}, {}) == []
+
+
+def test_scheme_own_condition_asked_as_quoted_yes_no():
+    s = scheme("s1", req("a", "unmapped:two_core_subjects", None, "at least 2 subjects of Physics, Chemistry, Mathematics"))
+    (q,) = generate_consolidated_questions([s], {}, {})
+    assert q.attribute == "unmapped:two_core_subjects" and q.input_type.value == "boolean"
+    assert q.options == ["Yes", "No"]
+    assert q.question == 'Does this apply to you: "at least 2 subjects of Physics, Chemistry, Mathematics"?'
+    answers, history = apply_answers({}, {}, [{"attribute": q.attribute, "state": "answered", "value": "Yes"}])
+    assert answers[q.attribute].value is True
+    assert generate_consolidated_questions([s], answers, history) == []
+
+
+def test_own_condition_never_rephrased():
+    llm = FakeLLM(json.dumps({"q_unmapped:merit_list": "Are you a top student?"}))
+    s = scheme("s1", req("a", "unmapped:merit_list", None, "listed in the merit list"))
+    qs = generate_consolidated_questions([s], {}, {}, rephrase_llm=llm)
+    assert qs[0].question.startswith('Does this apply to you: "listed in the merit list"')
 
 
 # --- batch size --------------------------------------------------------------
@@ -227,3 +245,14 @@ def test_next_batch_after_answers(schemes):
     nxt = ids(generate_consolidated_questions(schemes.values(), answers, history))
     assert "annual_family_income" not in nxt and "institution_type" not in nxt
     assert nxt == ["previous_year_marks_percent"]
+
+
+def test_own_conditions_come_after_shared_questions():
+    s1 = scheme("s1", req("a", "unmapped:merit_list", None, "listed in the merit list"), req("b", "age", "lte", 25))
+    s2 = scheme("s2", req("c", "unmapped:merit_list", None, "listed in the merit list"))
+    assert [q.attribute for q in generate_consolidated_questions([s1, s2], {}, {})] == ["age", "unmapped:merit_list"]
+
+
+def test_condition_id_without_text_is_readable():
+    s = scheme("s1", req("a", "unmapped:citizen_of_india", None, "citizen_of_india"))  # as seen live
+    assert generate_consolidated_questions([s], {}, {})[0].question.startswith('Does this apply to you: "citizen of india"')

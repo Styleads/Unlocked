@@ -87,3 +87,51 @@ def test_works_on_member2_records():
                                                        status="uncertain", source_url=A, evidence=LIMITS)])
     assert [p.kind for p in clarification_points(rec)] == [K.uncertain_rule, K.missing_process]
     assert clarification_request(rec).scheme.id == "demo_m2"
+
+
+# --- only real ambiguity, one question per topic (self-test findings) --------
+
+def test_our_own_mapping_gaps_are_not_asked():
+    s = _scheme([
+        {**_req("course_type", "uncertain", "Bright science (B.Sc.) girl students in Government colleges."),
+         "uncertain_reason": "not_stated", "normalized_by": "structured"},
+        {**_req("year_of_study", "uncertain", "Admitted to the first year of B.Sc. programmes."),
+         "uncertain_reason": "not_stated", "normalized_by": "structured"},
+    ])
+    assert clarification_points(s) == []
+
+
+def test_group_limits_become_one_question_per_topic():
+    other = "Income limit is Rs 2.50 lakh for Category-I and Rs 1.00 lakh for Category 2A, 3A and 3B students."
+    s = _scheme([
+        {**_req("annual_family_income", "uncertain", LIMITS), "uncertain_reason": "group_limits", "normalized_by": "structured"},
+        {**_req("annual_family_income", "uncertain", LIMITS), "uncertain_reason": "group_limits", "normalized_by": "structured"},
+        {**_req("annual_family_income", "uncertain", other, B), "uncertain_reason": "group_limits", "normalized_by": "structured"},
+    ])
+    (p,) = clarification_points(s)
+    assert "different conditions for different groups" in p.question
+    assert [f.text for f in p.facts] == [LIMITS, other]
+
+
+def test_end_to_end_with_member2_normalizer():
+    norm = pytest.importorskip("member2.normalize")
+    m2 = pytest.importorskip("member2.models")
+    import json
+
+    class FakeLLM:  # local stand-in; agent4 tests don't depend on member2's test helpers
+        def __init__(self, data):
+            self.data = data
+
+        def complete_json(self, system, user):
+            return json.dumps(self.data)
+
+    rec = m2.SchemeRecord(id="demo_e2e", name="Demo E2E", official_sources=[A], verification_status="verified", requirements=[
+        m2.Requirement(id="r1", criterion=LIMITS, status="verified", source_url=A, evidence=LIMITS),
+        m2.Requirement(id="r2", criterion="Science (B.Sc.) students only.", status="verified", source_url=A,
+                       evidence="Science (B.Sc.) students only.")])
+    llm = FakeLLM({"structured": [
+        {"id": "r1", "attribute": "annual_family_income", "operator": "lte", "value": 250000},
+        {"id": "r2", "attribute": "course_type", "operator": "eq", "value": "Arts/Science/Commerce"}], "extracted": []})
+    out = norm.normalize_scheme(rec, llm)
+    kinds = [(p.kind.value, p.question[:40]) for p in clarification_points(out)]
+    assert kinds == [("uncertain_rule", "The official rules on annual family inco")]  # course_type gap not asked

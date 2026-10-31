@@ -242,8 +242,9 @@ def load_fallback_schemes(
 # 4b. Per-scheme detail pass (full eligibility from each scheme's own pages)
 # --------------------------------------------------
 
+UNCHECKED_NOTE = "We couldn't read this scheme's own official page, so its rules may be incomplete."
 DETAIL_MAX_SCHEMES = 10     # bounds cost: one search + one model call each
-DETAIL_CONCURRENCY = 4
+DETAIL_CONCURRENCY = 2      # free-tier Gemini rate limits
 _RELEVANCE_ORDER = {"direct_match": 0, "related": 1, "additional": 2}
 
 
@@ -263,8 +264,22 @@ async def _enrich_details(client, records: list[dict]) -> None:
                 logger.warning("Detail pass failed for a scheme: %s", type(error).__name__)
                 return False
 
-    done = await asyncio.gather(*(one(i) for i in order[:DETAIL_MAX_SCHEMES]))
+    picked = order[:DETAIL_MAX_SCHEMES]
+    done = await asyncio.gather(*(one(i) for i in picked))
     logger.info("Detail pass confirmed rules for %d of %d schemes.", sum(done), len(done))
+
+    # A scheme whose own page was never read has rules from a summary at best
+    # (e.g. one sentence on a list page). It must not reach "Potential match":
+    # member2 only allows that for verified schemes.
+    checked = {i for i, ok in zip(picked, done) if ok}
+    for i, record in enumerate(records):
+        if i in checked:
+            continue
+        if record.get("verification_status") == "verified":
+            record["verification_status"] = "partially_verified"
+        notes = record.setdefault("missing_information", [])
+        if UNCHECKED_NOTE not in notes:
+            notes.append(UNCHECKED_NOTE)
 
 
 # --------------------------------------------------

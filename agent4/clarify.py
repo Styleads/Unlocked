@@ -74,22 +74,34 @@ def clarification_points(scheme: Any, *, limit: int = 3) -> list[ClarificationPo
     points: list[ClarificationPoint] = []
     reqs = _get(scheme, "requirements") or []
 
-    # 1. Rules from an official page that can't be applied as written. One
-    #    question per quote: split parts of one rule share it.
+    # 1. Rules the official text itself leaves open, one question per topic.
+    #    Only real ambiguity counts: limits that differ by group ("group_limits"),
+    #    or a rule the source marked uncertain. A rule uncertain only because our
+    #    checks couldn't confirm a value ("not_stated", e.g. "B.Sc." vs a coarse
+    #    course list) is our gap, not the department's, so it is never asked.
+    topics: dict[str, list[SourcedFact]] = {}
+    grouped: set[str] = set()
     seen: set[str] = set()
     for req in reqs:
         evidence, source = _get(req, "evidence"), _get(req, "source_url")
         if _value(_get(req, "status")) != "uncertain" or not (evidence and source):
             continue
-        key = _norm(evidence)
-        if key in seen:
+        reason = _get(req, "uncertain_reason")
+        if not (reason == "group_limits" or (reason is None and not _get(req, "normalized_by"))):
             continue
-        seen.add(key)
-        points.append(ClarificationPoint(
-            kind=ClarificationKind.uncertain_rule,
-            question=f"Could you please clarify how the quoted rule on {_topic(_get(req, 'attribute'))} applies to me?",
-            facts=[SourcedFact(text=evidence.strip(), source_url=source)],
-        ))
+        topic = _topic(_get(req, "attribute"))
+        if reason == "group_limits":
+            grouped.add(topic)
+        if _norm(evidence) not in seen:
+            seen.add(_norm(evidence))
+            topics.setdefault(topic, []).append(SourcedFact(text=evidence.strip(), source_url=source))
+    for topic, facts in topics.items():
+        if topic in grouped:
+            question = (f"The official rules on {topic} (quoted below) set different conditions for different "
+                        f"groups. Could you please confirm which one applies to me?")
+        else:
+            question = f"Could you please clarify how the quoted rule on {topic} applies to me?"
+        points.append(ClarificationPoint(kind=ClarificationKind.uncertain_rule, question=question, facts=facts))
 
     notes = [_norm(n) for n in (_get(scheme, "uncertainties") or []) if isinstance(n, str)]
 

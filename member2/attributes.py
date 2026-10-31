@@ -277,3 +277,34 @@ def resolve_attribute(name: str) -> Optional[str]:
     """Exact match on id, label or alias after normalization. No fuzzy guessing:
     a miss means the requirement needs clarification."""
     return _ALIAS_INDEX.get(normalize_text(name))
+
+
+# --- a scheme's own conditions -----------------------------------------------
+# A verified rule no registry attribute fits ("at least 2 of Physics, Chemistry,
+# ..."; "listed in the PUC-II merit list") is asked as a yes/no question quoting
+# the rule, so it can be answered instead of blocking the scheme (DECISIONS #63).
+
+CONDITION_PREFIX = "unmapped:"
+
+
+def is_condition(attribute: Optional[str]) -> bool:
+    return bool(attribute) and attribute.startswith(CONDITION_PREFIX)
+
+
+def condition_spec(attribute: str, text: str = "") -> AttributeSpec:
+    shown = str(text or attribute[len(CONDITION_PREFIX):])
+    if "_" in shown and " " not in shown:  # an id like "citizen_of_india", not prose
+        shown = shown.replace("_", " ")
+    shown = " ".join(shown.split())
+    if len(shown) > 160:
+        shown = shown[:157].rstrip() + "..."
+    return AttributeSpec(
+        id=attribute,
+        label="a condition of this scheme",
+        input_type=InputType.boolean,
+        sensitivity=Sensitivity.low,
+        effort=1,
+        question=f'Does this apply to you: "{shown}"?',
+        why_template="This is one of the scheme's own conditions, from its official page.",
+        keep_wording=True,  # quoted rule text: never rephrased
+    )

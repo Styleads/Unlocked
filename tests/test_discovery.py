@@ -406,7 +406,7 @@ def test_full_discovery_pipeline_with_verified_scheme(monkeypatch):
     }
 
     schemes = asyncio.run(
-        pipeline.discover_schemes(profile)
+        pipeline.discover_schemes(profile, deep_fetch=False)
     )
 
     assert len(schemes) == 1
