@@ -51,6 +51,15 @@ from discovery_agent.search_provider import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _fake_gemini_key(monkeypatch):
+    """Extraction is mocked in these tests; the pipeline only needs a key to be
+    present. Keeps the suite offline and independent of a developer's .env."""
+    monkeypatch.setenv("GOOGLE_API_KEY", "test-key-not-used")
+
+
+
+
 # ============================================================
 # 1. GUIDED DISCOVERY
 # ============================================================

@@ -37,6 +37,9 @@ RULES:
 8. Use only exact URLs supplied in the search results.
 9. Extract ALL distinct schemes mentioned in the results.
 10. Do not limit output to a single scheme.
+11. For every eligibility criterion and every required document, copy into
+    "evidence" the exact sentence from that source_url's content that states it,
+    character for character. Do not paraphrase. Use "" if no sentence states it.
 
 Extract important factual claims separately.
 
@@ -87,10 +90,18 @@ Return JSON only:
           "description": "",
           "related_attribute": null,
           "source_url": null,
+          "evidence": "",
           "verification_status": "unverified"
         }
       ],
       "required_documents": [],
+      "documents": [
+        {
+          "name": "",
+          "source_url": null,
+          "evidence": ""
+        }
+      ],
       "application_process": null,
       "application_url": null,
       "official_url": null,
@@ -173,15 +184,17 @@ def generate_json(
     client,
     model: str,
     prompt: str,
-    max_retries: int = 2
+    max_retries: int = 3
 ) -> dict:
     """
     Ask Gemini to generate a JSON response.
 
-    Retries on transient failures. Raises on permanent
-    failures or invalid JSON.
+    Retries transient failures *and* bad output: model sampling varies, so
+    invalid or empty JSON on one attempt often succeeds on the next.
+    Raises ValueError (bad output) or the last transport error once all
+    attempts are used.
     """
-    last_error = None
+    last_error: Exception | None = None
 
     for attempt in range(max_retries):
         try:
@@ -193,35 +206,39 @@ def generate_json(
                 }
             )
 
-            if not response.text:
-                raise ValueError("Gemini returned an empty response.")
-
-            try:
-                data = json.loads(response.text)
-            except json.JSONDecodeError as error:
-                raise ValueError(
-                    "Gemini returned invalid JSON."
-                ) from error
-
-            if not isinstance(data, dict):
-                raise ValueError("Expected a JSON object.")
-
+            data = parse_json_object(response.text)
             return data
-
-        except ValueError:
-            # Don't retry parse errors — they're deterministic
-            raise
 
         except Exception as error:
             last_error = error
             logger.warning(
                 "Gemini attempt %d/%d failed: %s",
-                attempt + 1, max_retries, error
+                attempt + 1, max_retries, type(error).__name__
             )
-            if attempt < max_retries - 1:
-                continue
 
     raise last_error  # type: ignore[misc]
+
+
+def parse_json_object(text) -> dict:
+    """Parse a JSON object, tolerating ```json fences and stray text around it."""
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError("Gemini returned an empty response.")
+    raw = text.strip()
+    if raw.startswith("```"):
+        raw = re.sub(r"^```[a-zA-Z]*\s*|\s*```$", "", raw)
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        start, end = raw.find("{"), raw.rfind("}")
+        try:
+            data = json.loads(raw[start:end + 1]) if 0 <= start < end else None
+        except json.JSONDecodeError:
+            data = None
+        if data is None:
+            raise ValueError("Gemini returned invalid JSON.") from None
+    if not isinstance(data, dict):
+        raise ValueError("Expected a JSON object.")
+    return data
 
 
 # ============================================================
@@ -246,6 +263,24 @@ def normalize_text(value):
         " ",
         value.lower()
     ).strip()
+
+
+# A quote shorter than this ("Yes", "Farmers") proves nothing about a rule.
+MIN_QUOTE_CHARS = 15
+
+
+def verbatim_evidence(evidence, source_url, official_sources):
+    """Return the model's quote only if it appears word for word in the full
+    content of the page it cites; otherwise None. Deterministic: the model
+    proposes the quote, Python decides whether it is real."""
+    if not isinstance(evidence, str) or len(evidence.strip()) < MIN_QUOTE_CHARS:
+        return None
+    source = official_sources.get(source_url) if isinstance(source_url, str) else None
+    if not source:
+        return None
+    if normalize_quote(evidence) not in normalize_quote(source.get("content", "")):
+        return None
+    return " ".join(evidence.split())
 
 
 # ============================================================
@@ -608,6 +643,19 @@ def deduplicate_schemes(schemes: list[SchemeRecord]) -> list[SchemeRecord]:
 # 9. MAIN DISCOVERY EXTRACTION PIPELINE
 # ============================================================
 
+def prompt_context(user_context: dict) -> dict:
+    """The profile fields extraction needs, and nothing else: the profile may
+    hold income, caste or contact details that must not leave the machine."""
+    employment = user_context.get("employment") if isinstance(user_context.get("employment"), dict) else {}
+    location = user_context.get("location") if isinstance(user_context.get("location"), dict) else {}
+    interests = user_context.get("interests") if isinstance(user_context.get("interests"), list) else []
+    return {
+        "employment": {"occupation": employment.get("occupation")},
+        "location": {"district": location.get("district"), "state": location.get("state")},
+        "interests": [i for i in interests if isinstance(i, str)],
+    }
+
+
 def extract_schemes(
     client,
     model: str,
@@ -673,7 +721,7 @@ def extract_schemes(
 {EXTRACTION_INSTRUCTIONS}
 
 USER CONTEXT:
-{json.dumps(user_context, ensure_ascii=False)}
+{json.dumps(prompt_context(user_context), ensure_ascii=False)}
 
 OFFICIAL SEARCH RESULTS:
 {json.dumps(list(official_sources.values()), ensure_ascii=False)}
@@ -871,11 +919,70 @@ OFFICIAL SEARCH RESULTS:
                     )
 
                     criterion["source_url"] = claim.get("source_url")
+                    if claim["verification_status"] == "verified":
+                        criterion["evidence"] = claim.get("supporting_excerpt")
                     break
+
+            # A criterion is verified when its own quote is really on the
+            # page it cites (checked here, not trusted from the model).
+            if criterion["verification_status"] != "verified":
+                quote = verbatim_evidence(
+                    criterion.get("evidence"),
+                    criterion.get("source_url"),
+                    official_sources
+                )
+                criterion["evidence"] = quote
+                if quote:
+                    criterion["verification_status"] = "verified"
 
             cleaned_criteria.append(criterion)
 
         raw_scheme["eligibility_criteria"] = cleaned_criteria
+
+        # ----------------------------------------------------
+        # C5b. Documents: keep source and quote only if verbatim
+        # ----------------------------------------------------
+
+        cleaned_documents = []
+        seen_doc_names = set()
+
+        for doc in raw_scheme.get("documents") or []:
+
+            if not isinstance(doc, dict):
+                continue
+
+            name = doc.get("name")
+
+            if not isinstance(name, str) or not name.strip():
+                continue
+
+            name = name.strip()
+
+            if name.casefold() in seen_doc_names:
+                continue
+
+            seen_doc_names.add(name.casefold())
+            source_url = doc.get("source_url") if doc.get("source_url") in evidence_urls else None
+            quote = verbatim_evidence(doc.get("evidence"), source_url, official_sources)
+
+            cleaned_documents.append({
+                "name": name,
+                "source_url": source_url if quote else None,
+                "evidence": quote
+            })
+
+        names = [
+            d for d in raw_scheme.get("required_documents") or []
+            if isinstance(d, str) and d.strip()
+        ]
+
+        for name in names:
+            if name.strip().casefold() not in seen_doc_names:
+                seen_doc_names.add(name.strip().casefold())
+                cleaned_documents.append({"name": name.strip(), "source_url": None, "evidence": None})
+
+        raw_scheme["documents"] = cleaned_documents
+        raw_scheme["required_documents"] = [d["name"] for d in cleaned_documents]
 
         # ----------------------------------------------------
         # C6. Calculate relevance

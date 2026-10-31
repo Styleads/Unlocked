@@ -143,6 +143,7 @@ _SPECS = [
             "parental income",
             "income limit",
             "income ceiling",
+            "income",  # Agent 1's related_attribute name
         ],
     ),
     AttributeSpec(

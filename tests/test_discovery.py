@@ -2,6 +2,18 @@
 from discovery_agent.scheme_extractor import verify_claims
 
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _fake_gemini_key(monkeypatch):
+    """Extraction is mocked in these tests; the pipeline only needs a key to be
+    present. Keeps the suite offline and independent of a developer's .env."""
+    monkeypatch.setenv("GOOGLE_API_KEY", "test-key-not-used")
+
+
+
+
 def test_verify_claims_accepts_exact_official_evidence():
     class FakeModels:
         def generate_content(self, **kwargs):
@@ -248,9 +260,10 @@ def test_discovery_pipeline_execution(monkeypatch):
         pipeline.discover_schemes(profile, search_scope="guided")
     )
 
-    assert result == expected_schemes
+    # Live results are converted to canonical member2 records.
+    assert [s.name for s in result] == [e["name"] for e in expected_schemes]
     assert len(result) == 1
-    assert result[0]["name"] == "Test Scheme"
+    assert result[0].name == "Test Scheme"
 
 
 # TEST 9: Pipeline handles empty search results
@@ -398,9 +411,10 @@ def test_full_discovery_pipeline_with_verified_scheme(monkeypatch):
 
     assert len(schemes) == 1
     assert schemes[0].name == "Example Farmer Support Scheme"
-    assert schemes[0].claims[0].verification_status == "verified"
+    # Canonical records keep Agent 1's claims as plain dicts.
+    assert schemes[0].claims[0]["verification_status"] == "verified"
     assert schemes[0].verification_status == "verified"
-    assert schemes[0].claims[0].source_url == official_url
+    assert schemes[0].claims[0]["source_url"] == official_url
 
 from discovery_agent.scheme_extractor import classify_relevance
 
@@ -748,7 +762,9 @@ async def test_discovery_across_scopes_and_user_contexts(
         )
 
     assert isinstance(results, list)
-    assert all(isinstance(s, SchemeRecord) for s in results)
+    # Every path returns canonical member2 records (plan.md 5.1).
+    from member2.models import SchemeRecord as CanonicalSchemeRecord
+    assert all(isinstance(s, CanonicalSchemeRecord) for s in results)
     assert len(results) >= 1
 
 @pytest.mark.anyio
