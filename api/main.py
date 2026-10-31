@@ -71,7 +71,7 @@ from agent4 import (
     build_email_draft,
     update_progress,
 )
-from member2 import default_client
+from api.orchestrator import _normalizer_llm
 
 # Load environment configuration
 load_dotenv()
@@ -569,7 +569,7 @@ async def api_analyze_rejection(
 )
 async def api_standalone_email(payload: StandaloneEmailRequest):
     """Generate email draft without requiring an existing session."""
-    llm = default_client()
+    llm = _normalizer_llm()  # None without a key: Agent 4 uses its template
     return build_email_draft(payload.model_dump(), llm=llm)
 
 
@@ -590,7 +590,7 @@ async def api_standalone_calendar(payload: StandaloneCalendarRequest):
 )
 async def api_standalone_rejection(payload: StandaloneRejectionRequest):
     """Analyze rejection notice without requiring an existing session."""
-    llm = default_client()
+    llm = _normalizer_llm()  # None without a key: Agent 4 uses its template
     return analyse_rejection(
         payload.scheme,
         payload.notice_text,

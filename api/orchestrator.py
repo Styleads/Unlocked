@@ -73,8 +73,9 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 def _normalizer_llm() -> Any:
-    """member2's LLM client when a key is configured, else None (offline: the
-    deterministic normalizer still runs). Never raises."""
+    """member2's LLM client when a key is configured, else None. Used for
+    normalization and Agent 4 actions; without a key both fall back to their
+    deterministic path instead of failing on a client with no credentials."""
     import os
 
     if not any(os.getenv(k) for k in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "ANTHROPIC_API_KEY")):
@@ -448,7 +449,7 @@ async def generate_email_action(
         facts=facts,
     )
 
-    llm = default_client()
+    llm = _normalizer_llm()  # None without a key: Agent 4 uses its template
     return build_email_draft(email_req, llm=llm)
 
 
@@ -545,7 +546,7 @@ async def analyze_scheme_rejection(
     if not guidance:
         guidance = facts_from_scheme(scheme)
 
-    llm = default_client()
+    llm = _normalizer_llm()  # None without a key: Agent 4 uses its template
     return analyse_rejection(
         scheme,
         request.notice_text,
