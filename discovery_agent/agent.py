@@ -59,8 +59,8 @@ def create_agent_chat(api_key: str | None = None, model: str = MODEL):
     """Create and return a Gemini chat session for the conversational agent."""
     if not api_key:
         env_path = Path(__file__).resolve().parent.parent / ".env"
-        load_dotenv(env_path, override=True)
-        api_key = os.getenv("GOOGLE_API_KEY")
+        load_dotenv(env_path, override=False)
+        api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
 
     if not api_key:
         raise ValueError("Google API key not found!")
@@ -78,9 +78,9 @@ def create_agent_chat(api_key: str | None = None, model: str = MODEL):
 def run_agent():
     """Run the interactive console chat loop."""
     env_path = Path(__file__).resolve().parent.parent / ".env"
-    load_dotenv(env_path, override=True)
+    load_dotenv(env_path, override=False)
 
-    api_key = os.getenv("GOOGLE_API_KEY")
+    api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
     if not api_key:
         print("Error: GOOGLE_API_KEY not found in environment or .env file.")
         return

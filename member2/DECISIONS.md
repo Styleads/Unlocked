@@ -85,6 +85,12 @@
 
 54. **`AttributeSpec.keep_wording`**: attributes whose legal meaning a rewrite could shift are never sent to the rephrasing LLM. Set on `domicile_karnataka` after Gemini turned "domicile" into "native of Karnataka". Its registry question now reads "Are you legally domiciled in Karnataka (not just currently living there)?".
 
+## Integration with Agent 1 (2026-10-31)
+
+55. **`income` is an alias of `annual_family_income`**: Agent 1's `related_attribute` uses it.
+56. **A known attribute with no operator is sent to the LLM for structuring** (previously only `None`/`unmapped:*`). Agent 1 delivers attribute + text without an operator; without this the rule stayed *Needs clarification* forever.
+57. **`verified` needs both `source_url` and `evidence`**; the deterministic pass downgrades a verified rule missing either to `unverified`. Other statuses are left as they are.
+
 ## Build
 
 16. **Phase order** follows the event schedule: 0, 1, 2, 3, 5 (questions), 4 (normalizer), 6 (planning). Review 1 needs questions, not the LLM.

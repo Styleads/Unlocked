@@ -17,10 +17,15 @@ Last review date: 2025-01-15
 from __future__ import annotations
 
 from discovery_agent.adapter import to_canonical_scheme, to_canonical_schemes
-try:
-    from member2.models import SchemeRecord
-except (ImportError, ModuleNotFoundError):
-    SchemeRecord = Any  # type: ignore
+from member2.models import SchemeRecord
+
+# The evidence lines below are short summaries written by the team, not
+# verbatim quotes, so no requirement here is marked verified and every
+# record carries this note for the UI.
+FALLBACK_NOTE = (
+    "Saved fallback record: the evidence lines are summaries written by our team, "
+    "not quotes from the official site. Check the official website before applying."
+)
 
 
 _RAW_FALLBACK_SCHEMES = [
@@ -51,16 +56,6 @@ _RAW_FALLBACK_SCHEMES = [
                 "status": "unverified",
                 "source_url": "https://pmfby.gov.in",
                 "evidence": "All farmers growing notified crops in notified areas are eligible.",
-            },
-            {
-                "id": "fallback-pmfby-001_req_2",
-                "attribute": "unmapped:loanee_status",
-                "criterion": "Both loanee and non-loanee farmers are eligible",
-                "operator": "is_true",
-                "value": None,
-                "status": "unverified",
-                "source_url": "https://pmfby.gov.in",
-                "evidence": "Both loanee and non-loanee farmers are eligible.",
             },
         ],
         "documents": [
@@ -470,4 +465,9 @@ def get_fallback_schemes() -> list[SchemeRecord]:
     downstream contracts (Member 2) while retaining backwards-compatible
     fields for Discovery Agent callers (Member 1).
     """
-    return to_canonical_schemes(_RAW_FALLBACK_SCHEMES)
+    records = to_canonical_schemes(_RAW_FALLBACK_SCHEMES)
+    return [
+        r.model_copy(update={"uncertainties": [*r.uncertainties, FALLBACK_NOTE]})
+        if FALLBACK_NOTE not in r.uncertainties else r
+        for r in records
+    ]

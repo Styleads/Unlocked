@@ -34,6 +34,26 @@ def extracted(**kw):
 
 # --- deterministic pass -------------------------------------------------------
 
+def test_agent1_income_name_resolves():
+    s = scheme([Requirement(id="r1", attribute="income", criterion="c", source_url=SRC)])
+    assert normalize_scheme(s).requirements[0].attribute == "annual_family_income"
+
+
+def test_verified_without_evidence_is_downgraded():
+    r = Requirement(id="r1", attribute="age", criterion="Age 25 or younger", operator="lte", value=25,
+                    status="verified", source_url=SRC, evidence=None)
+    assert normalize_scheme(scheme([r])).requirements[0].status == V.unverified
+
+
+def test_known_attribute_without_operator_is_structured():
+    r = Requirement(id="r1", attribute="annual_family_income", criterion=TEXT, status="verified",
+                    source_url=SRC, evidence=TEXT)
+    llm = FakeLLM({"structured": [{"id": "r1", "attribute": "annual_family_income", "operator": "lte", "value": 250000}],
+                   "extracted": []})
+    out = normalize_scheme(scheme([r]), llm).requirements[0]
+    assert [c["id"] for c in llm.payload()["criteria_to_structure"]] == ["r1"]
+    assert out.operator == Operator.lte and out.value == 250000 and out.status == V.verified
+
 def test_alias_mapped_to_canonical():
     s = scheme([Requirement(id="r1", attribute="Family Income", criterion="c", source_url=SRC)])
     assert normalize_scheme(s).requirements[0].attribute == "annual_family_income"

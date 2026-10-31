@@ -176,7 +176,8 @@ def _deterministic(scheme: SchemeRecord) -> SchemeRecord:
             used_ids.add(update["id"])
         if req.attribute and not is_canonical(req.attribute) and not req.attribute.startswith("unmapped:"):
             update["attribute"] = resolve_attribute(req.attribute) or f"unmapped:{_slug(req.attribute)}"
-        if not req.source_url:
+        # Verified needs both a source and a quote from it.
+        if (not req.source_url or not req.evidence) and req.status == RequirementVerification.verified:
             update["status"] = RequirementVerification.unverified
         reqs.append(req.model_copy(update=update))
     return scheme.model_copy(update={"requirements": reqs})
@@ -187,7 +188,9 @@ def _deterministic(scheme: SchemeRecord) -> SchemeRecord:
 def _needs_structuring(req: Requirement) -> bool:
     if getattr(req, LLM_MARK, None):
         return False
-    return req.attribute is None or req.attribute.startswith("unmapped:")
+    # A known attribute with no operator (e.g. Agent 1 sends only the attribute)
+    # can't be compared until the text is structured.
+    return req.attribute is None or req.attribute.startswith("unmapped:") or req.operator is None
 
 
 def _text_pending(scheme: SchemeRecord) -> bool:

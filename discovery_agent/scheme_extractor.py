@@ -608,6 +608,19 @@ def deduplicate_schemes(schemes: list[SchemeRecord]) -> list[SchemeRecord]:
 # 9. MAIN DISCOVERY EXTRACTION PIPELINE
 # ============================================================
 
+def prompt_context(user_context: dict) -> dict:
+    """The profile fields extraction needs, and nothing else: the profile may
+    hold income, caste or contact details that must not leave the machine."""
+    employment = user_context.get("employment") if isinstance(user_context.get("employment"), dict) else {}
+    location = user_context.get("location") if isinstance(user_context.get("location"), dict) else {}
+    interests = user_context.get("interests") if isinstance(user_context.get("interests"), list) else []
+    return {
+        "employment": {"occupation": employment.get("occupation")},
+        "location": {"district": location.get("district"), "state": location.get("state")},
+        "interests": [i for i in interests if isinstance(i, str)],
+    }
+
+
 def extract_schemes(
     client,
     model: str,
@@ -673,7 +686,7 @@ def extract_schemes(
 {EXTRACTION_INSTRUCTIONS}
 
 USER CONTEXT:
-{json.dumps(user_context, ensure_ascii=False)}
+{json.dumps(prompt_context(user_context), ensure_ascii=False)}
 
 OFFICIAL SEARCH RESULTS:
 {json.dumps(list(official_sources.values()), ensure_ascii=False)}
