@@ -41,7 +41,7 @@ export default function Plan() {
           </div>
         </div>
 
-        <div className="rise d3" style={{ display: "flex", alignItems: "center", gap: 16, padding: "18px 20px", borderRadius: 22, background: "var(--primary)", color: "var(--text)", flexWrap: "wrap", boxShadow: "var(--shadow-sm)" }}>
+        <div className="rise d3" style={{ display: "flex", alignItems: "center", gap: 16, padding: "18px 20px", borderRadius: 22, background: "var(--primary)", color: "var(--on-accent)", flexWrap: "wrap", boxShadow: "var(--shadow-sm)" }}>
           <span className="callout-icon" style={{ width: 42, height: 42 }}><FileText size={18} aria-hidden /></span>
           <span style={{ flex: "1 1 300px", fontSize: 17 }}>
             <strong style={{ fontWeight: 600 }}>Get your Income Certificate first.</strong> It's needed for 2 schemes: Demo Scholarship A and Demo Fee Concession B.

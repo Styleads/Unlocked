@@ -101,7 +101,7 @@ export default function Results() {
           >
             <div className="row-between">
               <span style={{ fontSize: 15, fontWeight: 600, color: "var(--primary-dark)" }}>Improve your results</span>
-              <span style={{ width: 36, height: 36, borderRadius: 999, background: "var(--primary)", color: "var(--text)", display: "grid", placeItems: "center" }}>
+              <span style={{ width: 36, height: 36, borderRadius: 999, background: "var(--primary)", color: "var(--on-accent)", display: "grid", placeItems: "center" }}>
                 <ArrowUpRight size={16} strokeWidth={2.2} aria-hidden />
               </span>
             </div>
@@ -138,7 +138,7 @@ export default function Results() {
 
       {hasAnswers && (
         <div className="toast" role="status">
-          <span style={{ width: 28, height: 28, borderRadius: 999, background: "var(--primary)", color: "var(--text)", display: "grid", placeItems: "center" }}>
+          <span style={{ width: 28, height: 28, borderRadius: 999, background: "var(--primary)", color: "var(--on-accent)", display: "grid", placeItems: "center" }}>
             <Check size={15} strokeWidth={2.6} aria-hidden />
           </span>
           Results updated with your answers.
