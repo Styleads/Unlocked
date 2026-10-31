@@ -2,7 +2,7 @@
 
 > **Role:** Technical Lead · Backend · SQLite · Orchestration · Integration  
 > **Milestone:** Review Round 1 (target: 7:00 PM, October 31)  
-> **Working Branch:** `feat/agent1v2` (Integrated branch containing Agent 1 & Agent 2/3 codebases)  
+> **Working Branch:** `main` (Unified master containing Agent 1 & Agent 2/3 codebases)  
 > **Primary Objective:** Build the central FastAPI orchestrator, SQLite session persistence, and M1 $\leftrightarrow$ M2 schema adapter to deliver the review-ready **Context Seed → Discovery (M1) → Schema Adapter → Normalization & Initial Assessment (M2) → Consolidated Questions (M2) → Answer Submission & Reassessment (M2) → Document Planning DAG (M2) → Session Persistence (SQLite)** end-to-end slice.
 
 ---
@@ -128,7 +128,7 @@ async def discover_schemes(
 
 async def translate_schemes_to_kannada(
     schemes: list[discovery_agent.scheme_schema.SchemeRecord]
-) -> tuple[list[discovery_agent.scheme_schema.SchemeRecord], list[str]]: ...
+) -> TranslationResult: ...  # NamedTuple: (schemes, warnings, translation_status, actual_response_language)
 ```
 
 ### 5.2 Member 2 Public Interface (`member2`)
@@ -182,80 +182,30 @@ def build_action_plan(
 ```
 
 ### 5.3 M1-to-M2 Schema Adapter (`api/adapter.py`)
-Because Member 1 extracts `eligibility_criteria` (as `SchemeCriterion`) and flat document strings, while Member 2 expects `requirements` (as `Requirement`) and structured `DocumentRequirement` objects, Member 3 provides the canonical adapter.
+Because Member 1 extracts `eligibility_criteria` (as `SchemeCriterion`) and flat document strings, while Member 2 expects `requirements` (as `Requirement`) and structured `DocumentRequirement` objects, Member 3 provides the canonical adapter bridge.
 
-> [!TIP]
-> **Production Implementation Available:** Member 1 has already implemented and verified this exact transformation in [`discovery_agent/adapter.py`](file:///home/kruthik/coding/Unlocked/discovery_agent/adapter.py) (`adapt_m1_to_m2_scheme` / `to_canonical_scheme`). It automatically resolves canonical attributes via `member2.attributes.resolve_attribute`, prefixes unmapped attributes with `unmapped:`, normalizes operators to `Operator` enums, and attaches `source_url` and `evidence` to all documents so Agent 3 never excludes them from the checklist.
-> In `api/adapter.py`, Member 3 can simply re-export:
+> [!IMPORTANT]
+> **Production Implementation In Place:** Member 1 has already implemented and tested this transformation in [`discovery_agent/adapter.py`](file:///home/kruthik/coding/Unlocked/discovery_agent/adapter.py) (`adapt_m1_to_m2_scheme` / `to_canonical_scheme`). It resolves canonical attributes via `member2.attributes.resolve_attribute()`, prefixes unmapped attributes with `unmapped:`, normalizes operators to `Operator` enums, and attaches `source_url` and `evidence` to all documents so Agent 3 never excludes them from the checklist.
+>
+> In `api/adapter.py`, Member 3 simply re-exports the verified engine:
 > ```python
-> from discovery_agent.adapter import adapt_m1_to_m2_scheme, adapt_m1_to_m2_schemes
+> """
+> api/adapter.py — Canonical adapter bridging Member 1 discovery schemas to Member 2 contracts.
+> """
+> from discovery_agent.adapter import (
+>     adapt_m1_to_m2_scheme,
+>     adapt_m1_to_m2_schemes,
+>     to_canonical_scheme,
+>     to_canonical_schemes,
+> )
+> 
+> __all__ = [
+>     "adapt_m1_to_m2_scheme",
+>     "adapt_m1_to_m2_schemes",
+>     "to_canonical_scheme",
+>     "to_canonical_schemes",
+> ]
 > ```
-
-```python
-from typing import Any
-import discovery_agent.scheme_schema as m1_schema
-import member2.models as m2_models
-
-def adapt_m1_to_m2_scheme(m1_scheme: m1_schema.SchemeRecord | dict[str, Any]) -> m2_models.SchemeRecord:
-    """Transforms a Member 1 SchemeRecord into a Member 2 SchemeRecord."""
-    data = m1_scheme.model_dump() if hasattr(m1_scheme, "model_dump") else dict(m1_scheme)
-    
-    # 1. Convert eligibility_criteria to Member 2 Requirement objects
-    requirements: list[m2_models.Requirement] = []
-    for idx, crit in enumerate(data.get("eligibility_criteria", [])):
-        c_desc = crit.get("description", "")
-        requirements.append(
-            m2_models.Requirement(
-                id=f"{data.get('id', 'scheme')}_req_{idx+1}",
-                criterion=c_desc,
-                attribute=crit.get("related_attribute"),
-                status=crit.get("verification_status", "unverified"),
-                source_url=crit.get("source_url") or data.get("official_url"),
-                evidence=c_desc
-            )
-        )
-    
-    # 2. Extract eligibility claims as additional requirements if not redundant
-    for idx, claim in enumerate(data.get("claims", [])):
-        if claim.get("category") == "eligibility" and claim.get("claim"):
-            requirements.append(
-                m2_models.Requirement(
-                    id=f"{data.get('id', 'scheme')}_claim_{idx+1}",
-                    criterion=claim.get("claim"),
-                    source_url=claim.get("source_url") or data.get("official_url"),
-                    evidence=claim.get("supporting_excerpt") or claim.get("claim"),
-                    status=claim.get("verification_status", "unverified")
-                )
-            )
-
-    # 3. Collect official sources
-    official_sources = []
-    if data.get("official_url"):
-        official_sources.append(data.get("official_url"))
-    for ev in data.get("source_evidence", []):
-        if ev.get("url") and ev["url"] not in official_sources:
-            official_sources.append(ev["url"])
-
-    # 4. Construct Member 2 SchemeRecord
-    # Note: Bare strings in documents are coerced to DocumentRequirement by M2 validators
-    return m2_models.SchemeRecord(
-        id=data.get("id"),
-        name=data.get("name"),
-        summary=data.get("description", ""),
-        government_level=data.get("government_level", "unknown"),
-        department=data.get("department"),
-        target_group=data.get("target_groups", []),
-        requirements=requirements,
-        benefit=data.get("benefits", [None])[0] if data.get("benefits") else None,
-        documents=data.get("required_documents", []),
-        application_steps=[data.get("application_process")] if data.get("application_process") else [],
-        application_url=data.get("application_url"),
-        official_sources=official_sources,
-        verification_status=data.get("verification_status", "not_verified"),
-        uncertainties=data.get("missing_information", []),
-        source_type=data.get("discovery_source", "live_search")
-    )
-```
 
 ---
 
@@ -449,10 +399,11 @@ When the user toggles a document (e.g. from `needed` to `have` or `obtained`):
    python -m pytest tests/member2 -q
    ```
    Must remain 100% passing offline without network or paid API keys.
-2. **Member 1 Discovery & API Suite (52 tests):**
+2. **Member 1 Discovery & Translation Suite:**
    ```bash
-   python -m pytest tests/test_discovery.py tests/test_extended_discovery.py tests/test_api.py -q
+   python -m pytest tests/test_discovery.py tests/test_extended_discovery.py tests/test_kannada.py -q
    ```
+   *(Note: `tests/test_api.py` and `tests/test_orchestrator.py` will be created fresh for the new FastAPI endpoints).*
 3. **M1 $\leftrightarrow$ M2 Schema Adapter Verification:**
    ```bash
    python -m member2.check_member1 tests/member2/fixtures/schemes.json
@@ -494,8 +445,8 @@ When the user toggles a document (e.g. from `needed` to `have` or `obtained`):
 | Time Window | Focus Area | Deliverable |
 |---|---|---|
 | **00:00 – 00:20** | Environment & Package Alignment | Merge dependencies into `requirements.txt`, verify imports from `discovery_agent` and `member2`. |
-| **00:20 – 00:45** | M1-to-M2 Adapter (`api/adapter.py`) | Implement schema conversion function, verify with `member2.check_member1`. |
-| **00:45 – 01:15** | SQLite Session Store (`api/database.py`) | Implement async database operations (`aiosqlite`) with WAL mode. |
+| **00:20 – 00:40** | Package Setup & Adapter Wire-Up (`api/adapter.py`) | Re-export `discovery_agent.adapter`, verify contract pass with `member2.check_member1`. |
+| **00:40 – 01:15** | SQLite Session Store (`api/database.py`) | Implement async database operations (`aiosqlite`) with WAL mode. |
 | **01:15 – 01:50** | Central Orchestrator (`api/orchestrator.py`) | Wire discovery $\rightarrow$ adapter $\rightarrow$ normalize $\rightarrow$ assess $\rightarrow$ questions $\rightarrow$ plan. |
 | **01:50 – 02:20** | API Routes Integration (`api/main.py`) | Expose session CRUD, discovery, questions, answers, and plan endpoints. |
 | **02:20 – 02:45** | Integration Testing & Dry Run | Run automated test suite and execute the 90-second Review 1 walkthrough. |
