@@ -52,6 +52,7 @@ All Member 2 deliverables are built and tested: `python -m pytest tests/member2 
 * **Code:** `member2/` (package, relative imports, so it can move under `backend/`), `tests/member2/`, `requirements-member2.txt`.
 * **How to call it (Member 3):** `member2/README.md`.
 * **Full decision log (54 entries):** `member2/DECISIONS.md`. **Status and open issues:** `member2/STATUS.md`.
+* **Potential Issues & Review Log:** [`docs/m2/potential_issues.md`](file:///home/kruthik/coding/Unlocked/docs/m2/potential_issues.md).
 * **LLM:** Gemini (free tier) if `GEMINI_API_KEY` is set, else Claude. Confirmed live on Gemini.
 * **Check Member 1 output:** `python -m member2.check_member1 path/to/schemes.json`.
 
