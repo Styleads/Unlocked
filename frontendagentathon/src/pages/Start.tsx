@@ -1,13 +1,15 @@
 import { Check } from "lucide-react";
 import { BackLink, FlowHeader, Intro, PrimaryLink } from "../ui";
 import { useSession } from "../session";
+import { EMAIL_RE } from "../live";
 import { CATEGORIES } from "../data";
 
 export default function Start() {
   const { session, update } = useSession();
   const guided = session.scope === "guided";
   const count = CATEGORIES.filter((c) => session.categories[c]).length;
-  const canGo = !guided || count > 0;
+  const emailOk = session.email.trim() === "" || EMAIL_RE.test(session.email.trim());
+  const canGo = (!guided || count > 0) && emailOk;
 
   return (
     <div className="page">
@@ -73,6 +75,17 @@ export default function Start() {
           </div>
         </div>
 
+        <label className="card stack rise d4" style={{ padding: 22, gap: 8 }}>
+          <span className="label">YOUR EMAIL</span>
+          <input
+            className="inp" type="email" autoComplete="email" placeholder="you@example.com" value={session.email}
+            onChange={(e) => update({ email: e.target.value })} aria-invalid={!emailOk}
+          />
+          <span style={{ fontSize: 14, color: emailOk ? "var(--muted)" : "var(--warn-text)" }}>
+            {emailOk ? "We'll send your plan, appointment confirmations, reminders and follow-ups here." : "Enter a valid email address."}
+          </span>
+        </label>
+
         <div className="row-between rise d4" style={{ paddingTop: 28, borderTop: "1px solid var(--line)" }}>
           <BackLink to="/" />
           {canGo ? (
@@ -80,7 +93,7 @@ export default function Start() {
               {guided ? `Continue with ${count} ${count === 1 ? "category" : "categories"}` : "Continue with everything"}
             </PrimaryLink>
           ) : (
-            <span style={{ fontSize: 15, color: "var(--warn-text)", fontWeight: 500 }}>Pick at least one category to continue.</span>
+            <span style={{ fontSize: 15, color: "var(--warn-text)", fontWeight: 500 }}>{emailOk ? "Pick at least one category to continue." : "Check your email address to continue."}</span>
           )}
         </div>
       </main>

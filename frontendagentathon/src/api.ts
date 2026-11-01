@@ -157,7 +157,33 @@ export type ApiAppointment = {
   location?: string | null;
   status: string;
   outcome_summary?: string | null;
+  outcome_details?: { plan?: ApiAfterPlan } | null;
 };
+
+export type ApiChoice = { value: string; label: string };
+/** An appointment that is over and has no reported outcome (decided by Agent 4). */
+export type ApiDueFollowUp = {
+  appointment_id: string;
+  purpose: string;
+  scheduled_at_utc?: string | null;
+  location?: string | null;
+  question: string;
+  attended_options: ApiChoice[];
+  outcome_options: ApiChoice[];
+  simulated: boolean;
+};
+/** What follows from the user's report, as Agent 4 worked it out. */
+export type ApiAfterPlan = {
+  appointment_id: string;
+  new_status: string;
+  summary: string;
+  next_steps: { kind: string; text: string; document?: string | null }[];
+  ask_later: { field: string; question: string; options: string[] }[];
+  documents_to_add: string[];
+  rescheduled_at_utc?: string | null;
+  warnings: string[];
+};
+export type AppointmentReport = { attended: string; outcome?: string; additional_documents?: string[]; rescheduled_date?: string; notes?: string };
 
 export type ApiFollowUp = {
   scope_type: "appointment" | "application" | "session";
@@ -284,6 +310,9 @@ export const api = {
   finishOfficeChat: (chatId: string) => post<ApiOfficeChat>(`/api/office-chats/${encodeURIComponent(chatId)}/finish`, {}, 15000),
   officeOutcome: (chatId: string) => request<ApiOfficeOutcome>(`/api/office-chats/${encodeURIComponent(chatId)}/outcome`, { timeoutMs: 15000 }),
   markQuestionSent: (qid: string) => post<ApiUnresolved>(`/api/unresolved-questions/${encodeURIComponent(qid)}/mark-sent`, {}, 15000),
+  dueFollowUps: (id: string) => request<ApiDueFollowUp[]>(`${sid(id)}/follow-ups`, { timeoutMs: 15000 }),
+  reportAppointment: (id: string, aid: string, body: AppointmentReport) =>
+    post<ApiAppointment>(`${sid(id)}/appointments/${encodeURIComponent(aid)}/outcome`, body, 30000),
   // the page behind the link in an email: it needs only the link's token, not a session
   followUp: (token: string) => request<ApiFollowUp>(`/api/follow-up/${encodeURIComponent(token)}`, { timeoutMs: 15000 }),
   followUpOutcome: (token: string, body: ApiOutcome) => post<unknown>(`/api/follow-up/${encodeURIComponent(token)}/outcome`, body, 20000),

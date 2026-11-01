@@ -4,6 +4,7 @@ import { BellOff, CalendarClock, Eye, Mail, Send, X } from "lucide-react";
 import { api } from "../api";
 import type { ApiAppointment, ApiEmailPreview, ApiNotification, ApiPrefs } from "../api";
 import { useLive } from "../live";
+import { APPOINTMENTS_CHANGED } from "./AfterAppointment";
 
 /**
  * Email follow-through, built on the backend's notification endpoints. It is opt-in: nothing is sent until the
@@ -27,7 +28,6 @@ export default function EmailMe() {
   const [prefs, setPrefs] = useState<ApiPrefs | null>(null);
   const [editing, setEditing] = useState(false);
   const [email, setEmail] = useState("");
-  const [consent, setConsent] = useState(false);
   const [reminders, setReminders] = useState(true);
   const [preview, setPreview] = useState<ApiEmailPreview | null>(null);
   const [sent, setSent] = useState<string>("");
@@ -44,6 +44,13 @@ export default function EmailMe() {
     setAppts(a);
   }, [id]);
 
+  // an answer in "How did it go?" changes an appointment's status (or adds a return visit)
+  useEffect(() => {
+    const again = () => void refresh().catch(() => undefined);
+    window.addEventListener(APPOINTMENTS_CHANGED, again);
+    return () => window.removeEventListener(APPOINTMENTS_CHANGED, again);
+  }, [refresh]);
+
   useEffect(() => {
     if (!id) return;
     let alive = true;
@@ -53,7 +60,9 @@ export default function EmailMe() {
         setPrefs(p);
         setEmail(p.email ?? "");
         setReminders(p.categories.appointment_reminders !== false);
+        // appointments are listed with or without emails; notifications only matter once emails are on
         if (p.email_enabled) await refresh();
+        else setAppts(await api.appointments(id));
       })
       .catch((e) => alive && setError(message(e, "Email settings couldn't be loaded.")));
     return () => { alive = false; };
@@ -78,17 +87,15 @@ export default function EmailMe() {
   const save = (e: FormEvent) => {
     e.preventDefault();
     if (!EMAIL.test(email.trim())) return setError("Enter a valid email address.");
-    if (!consent && !on) return setError("Tick the box to let us email you.");
     void run("save", async () => {
       const p = await api.savePrefs(id, {
         email: email.trim(),
         email_enabled: true,
         categories: { action_plan_summary: true, appointment_reminders: reminders, appointment_follow_up: reminders },
-        consent_version: "v1",
+        consent_version: "step1",
       });
       setPrefs(p);
       setEditing(false);
-      setConsent(false);
       await refresh();
     });
   };
@@ -123,7 +130,7 @@ export default function EmailMe() {
         <span className="eyebrow">_ Email</span>
         <h2 className="serif" style={{ fontSize: "clamp(26px, 2.8vw, 36px)", lineHeight: 1.05 }}>Email me my plan and reminders.</h2>
         <p style={{ fontSize: 15, color: "var(--muted)" }}>
-          Optional, and off until you turn it on. We email only the address you give, only about your plan and the appointments you add, and you can switch it off at any time.
+          Your plan, appointment confirmations, reminders and follow-ups go to the address you gave on step 1. You can change it or turn emails off here.
         </p>
       </div>
 
@@ -140,12 +147,6 @@ export default function EmailMe() {
             <form className="stack" style={{ gap: 12 }} onSubmit={save} noValidate>
               <label htmlFor="em-addr" className="label">YOUR EMAIL ADDRESS</label>
               <input id="em-addr" className="inp" type="email" autoComplete="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
-              {!on && (
-                <label style={{ display: "flex", gap: 10, alignItems: "flex-start", fontSize: 14, color: "var(--text-2)", cursor: "pointer" }}>
-                  <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} style={{ marginTop: 3 }} />
-                  <span>Yes, email me my plan and any reminders I ask for. I understand I can turn this off at any time.</span>
-                </label>
-              )}
               <label style={{ display: "flex", gap: 10, alignItems: "flex-start", fontSize: 14, color: "var(--text-2)", cursor: "pointer" }}>
                 <input type="checkbox" checked={reminders} onChange={(e) => setReminders(e.target.checked)} style={{ marginTop: 3 }} />
                 <span>Also send reminders for appointments I add below.</span>
@@ -244,6 +245,7 @@ function AppointmentsCard({
       });
       setPurpose(""); setAt(""); setPlace("");
       await onChange();
+      window.dispatchEvent(new Event(APPOINTMENTS_CHANGED)); // a time in the past is asked about straight away
     } catch (err) {
       setError(message(err, "The appointment couldn't be saved."));
     } finally {
@@ -289,6 +291,12 @@ function AppointmentsCard({
               <span className="stack" style={{ gap: 2, minWidth: 0 }}>
                 <span style={{ fontSize: 15 }}>{a.purpose}</span>
                 <span style={{ fontSize: 13, color: "var(--faint)" }}>{[when(a.scheduled_at_utc) || "No time set", a.location].filter(Boolean).join(" · ")}</span>
+                {a.outcome_details?.plan && a.status !== "scheduled" && (
+                  <span style={{ fontSize: 13, color: "var(--muted)" }}>
+                    {a.outcome_details.plan.summary}
+                    {a.outcome_details.plan.next_steps.map((s) => <span key={s.text} style={{ display: "block" }}>Next: {s.text}</span>)}
+                  </span>
+                )}
               </span>
               <span style={{ display: "flex", gap: 8, alignItems: "center", flex: "none" }}>
                 <span className="nx-badge">{a.status}</span>

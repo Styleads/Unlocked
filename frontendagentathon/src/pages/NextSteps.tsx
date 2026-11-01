@@ -4,7 +4,7 @@ import { BadgeCheck, CalendarPlus, Check, CircleDashed, ClipboardCopy, Mail, Mes
 import { ArrowChip } from "../ui";
 import { useSession } from "../session";
 import { useLive } from "../live";
-import { useRouter } from "../router";
+import { OfficeChatPanel } from "./OfficeChat";
 import { APPLY_STAGES, SCHEMES } from "../data";
 import type { ApplyStage } from "../data";
 import type { PlanDocVM, PlanVM } from "../model";
@@ -126,7 +126,7 @@ function SchemeStep({
   stage: ApplyStage; setStage: (s: ApplyStage) => void;
 }) {
   const live = useLive();
-  const { navigate } = useRouter();
+  const [chatOpen, setChatOpen] = useState(false);
   const [date, setDate] = useState("");
   const [copied, setCopied] = useState(false);
   const [note, setNote] = useState("");
@@ -259,12 +259,18 @@ function SchemeStep({
           <Mail size={15} aria-hidden /> {mailOpen ? "Hide email draft" : "Draft email"}
         </button>
         {live.active && (
-          <button className="btn-ghost nx-sm" onClick={() => { live.select(id); navigate("/office-chat"); }}>
-            <MessageCircle size={15} aria-hidden /> Try an office chat (simulated)
+          <button className="btn-ghost nx-sm" onClick={() => setChatOpen((o) => !o)} aria-expanded={chatOpen}>
+            <MessageCircle size={15} aria-hidden /> {chatOpen ? "Hide office chat" : "Chat with the office (simulated)"}
           </button>
         )}
       </div>
       {note && <p role="status" style={{ fontSize: 13, color: "var(--warn-text)" }}>{note}</p>}
+
+      {chatOpen && live.active && (
+        <div className="nx-mail pop">
+          <OfficeChatPanel schemeId={id} schemeName={name} />
+        </div>
+      )}
 
       {mailOpen && (
         <div className="nx-mail pop">

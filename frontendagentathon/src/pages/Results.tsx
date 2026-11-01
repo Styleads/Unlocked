@@ -4,7 +4,7 @@ import { Disclaimer, FlowHeader, OutcomeSourceBadge, PrimaryLink, SourceLink, St
 import { Link } from "../router";
 import { useSession } from "../session";
 import { evaluateAll, improvement } from "../eligibility";
-import { useLive } from "../live";
+import { forceFallback, useLive } from "../live";
 import { fromApiScheme, fromEvaluated, improveFromApi } from "../model";
 import type { SchemeVM } from "../model";
 
@@ -71,10 +71,12 @@ export default function Results() {
           <div role="status" className="hatch" style={{ display: "flex", alignItems: "center", gap: 14, padding: "16px 20px", borderRadius: 20, border: "1px solid var(--line-3)" }}>
             <TriangleAlert size={20} color="var(--warn-text)" aria-hidden style={{ flex: "none" }} />
             <span style={{ fontSize: 15 }}>
-              <strong style={{ fontWeight: 600 }}>Live search had trouble.</strong> Showing limited results. Schemes from fallback data are clearly tagged.{live.active && live.warnings.length > 0 && ` ${live.warnings[0]}`}
+              {forceFallback()
+                ? <><strong style={{ fontWeight: 600 }}>Demo data is on.</strong> These are the offline fallback schemes (open the site with ?fallback=0 to search live).</>
+                : <><strong style={{ fontWeight: 600 }}>Live search had trouble.</strong> Showing limited results. Schemes from fallback data are clearly tagged.</>}{live.active && live.warnings.length > 0 && ` ${live.warnings[0]}`}
               {searchError && <span style={{ display: "block", marginTop: 4, color: "var(--warn-text)" }}>{searchError}</span>}
             </span>
-            {live.active && live.sourceMode === "fallback" && (
+            {live.active && live.sourceMode === "fallback" && !forceFallback() && (
               <button className="btn-ghost" style={{ marginLeft: "auto", background: "var(--surface)" }} onClick={searchAgain} disabled={searching}>
                 {searching ? "Searching… this can take a minute" : "Search again"}
               </button>

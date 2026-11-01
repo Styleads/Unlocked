@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { api, ApiError } from "../api";
-import type { ApiFollowUp, ApiOutcome } from "../api";
+import type { ApiAfterPlan, ApiAppointment, ApiFollowUp, ApiOutcome } from "../api";
 import { Brand, Disclaimer, ThemeSwitcher } from "../ui";
 
 /**
@@ -34,6 +34,7 @@ export default function FollowUp() {
   const [done, setDone] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [after, setAfter] = useState<ApiAfterPlan | null>(null);
   const [attended, setAttended] = useState("yes");
   const [outcome, setOutcome] = useState("");
   const [appStatus, setAppStatus] = useState("");
@@ -68,7 +69,8 @@ export default function FollowUp() {
     setBusy(true);
     setError("");
     try {
-      await api.followUpOutcome(token, body);
+      const res = (await api.followUpOutcome(token, body)) as ApiAppointment | null;
+      setAfter(res?.outcome_details?.plan ?? null);
       setDone(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Your update couldn't be saved.");
@@ -159,6 +161,13 @@ export default function FollowUp() {
         {done && (
           <div className="card nx">
             <p style={{ color: "var(--text-2)" }}>We've recorded your update. You can close this page.</p>
+            {after && (
+              <div className="stack" style={{ gap: 6 }}>
+                <p style={{ color: "var(--muted)" }}>{after.summary}</p>
+                {after.next_steps.length > 0 && <ul className="nx-docs">{after.next_steps.map((s) => <li key={s.text}>{s.text}</li>)}</ul>}
+                {after.warnings.map((w) => <p key={w} style={{ fontSize: 13, color: "var(--warn-text)" }}>{w}</p>)}
+              </div>
+            )}
             <a className="btn-ghost nx-sm" href="/" style={{ alignSelf: "flex-start" }}>Open Unlocked</a>
           </div>
         )}

@@ -7,6 +7,7 @@ import { planFromApi, planFromDemo } from "../model";
 import type { DocStatus } from "../data";
 import NextSteps from "./NextSteps";
 import EmailMe from "./EmailMe";
+import AfterAppointment from "./AfterAppointment";
 import DepGraph from "./DepGraph";
 
 const CHOICES: [DocStatus, string][] = [["needed", "Needed"], ["have", "I have it"], ["obtained", "Obtained"]];
@@ -66,6 +67,7 @@ export default function Plan() {
     <div className="page">
       <FlowHeader current={4} />
       <main className="main wide" style={{ paddingBottom: 72 }}>
+        <AfterAppointment />
         <div className="row-between" style={{ alignItems: "flex-end", gap: 24 }}>
           <div className="stack" style={{ gap: 14, maxWidth: 720 }}>
             <span className="eyebrow rise">_ Step 4 of 4 · Document plan</span>

@@ -174,6 +174,7 @@ from api.schemas import (
     UnresolvedQuestionDraftRequest,
     UserInputRequest,
 )
+from agent4.follow_up import AppointmentFollowUp, AppointmentReport, due_follow_ups, plan_after_appointment
 from agent4 import (
     analyse_rejection,
     build_calendar_artifact,
@@ -1163,6 +1164,29 @@ async def api_list_appointments(
     ]
 
 
+def _appointment_record(r: dict) -> dict:
+    return {
+        "appointment_id": r["appointment_id"], "purpose": r["purpose"], "scheduled_at_utc": r.get("scheduled_at_utc"),
+        "status": r.get("status", "scheduled"), "location": r.get("location"),
+        "simulated": r.get("status_source") == "simulated_confirmed",
+    }
+
+
+@app.get(
+    "/api/sessions/{session_id}/follow-ups",
+    response_model=list[AppointmentFollowUp],
+    tags=["Appointments"],
+)
+async def api_list_due_follow_ups(
+    session_id: str = PathParam(..., description="UUID of session"),
+):
+    """Appointments that are over and have no reported outcome: the app asks the user how each one went."""
+    if not await get_session(session_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Session '{session_id}' not found.")
+    rows = await list_appointments(session_id)
+    return due_follow_ups([_appointment_record(r) for r in rows], now=now_utc())
+
+
 @app.patch(
     "/api/sessions/{session_id}/appointments/{appointment_id}",
     response_model=AppointmentView,
@@ -1246,17 +1270,45 @@ async def api_submit_appointment_outcome(
         notification_types=["appointment_follow_up"],
     )
 
-    # Determine status
-    attended_status = "attended" if payload.attended in ("yes", "attended") else payload.attended
+    # Agent 4 turns the report into a status and next steps; nothing it returns is inferred.
+    try:
+        report = AppointmentReport.model_validate(payload.model_dump())
+    except Exception as exc:  # noqa: BLE001 - an unknown answer is the caller's mistake, not a server error
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Unrecognised answer: {exc}")
+    plan = plan_after_appointment(_appointment_record(appt), report, now=now_utc())
+    attended_status = plan.new_status
+    # kept as the reported code (other clients read it); Agent 4's wording is in outcome_details["plan"]
     summary = payload.outcome or payload.notes or attended_status
 
+    details = payload.model_dump()
+    details["plan"] = plan.model_dump(mode="json")
+    moved = plan.rescheduled_at_utc is not None and report.attended.value == "rescheduled"
     updated = await update_appointment(
         appointment_id=appointment_id,
         status=attended_status,
-        outcome_summary=summary,
-        outcome_details=payload.model_dump(),
+        # a moved appointment keeps its row with the new time, so the app asks again after the new date
+        scheduled_at_utc=plan.rescheduled_at_utc.isoformat() if moved else None,
+        outcome_summary=None if moved else summary,
+        outcome_details=details,
         status_source="user_reported",
     )
+
+    # a return visit is a new appointment of its own
+    if plan.rescheduled_at_utc is not None and not moved:
+        try:
+            await create_appointment(
+                appointment_id=str(uuid.uuid4()),
+                session_id=session_id,
+                purpose=f"Return visit: {appt['purpose']}",
+                scheduled_at_utc=plan.rescheduled_at_utc.isoformat(),
+                location=appt.get("location"),
+                application_id=appt.get("application_id"),
+                related_task_id=appt.get("related_task_id"),
+                status="scheduled",
+                status_source="user_reported",
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Could not save the return visit: %s", type(exc).__name__)
 
     # Record event
     await record_application_event(
@@ -1284,8 +1336,8 @@ async def api_submit_appointment_outcome(
             logger.warning("Could not auto-update checklist item: %s", exc)
 
     # 2. Additional documents requested
-    if payload.outcome == "additional_documents_requested" and payload.additional_documents:
-        for doc in payload.additional_documents:
+    if plan.documents_to_add:
+        for doc in plan.documents_to_add:
             doc_slug = "doc_" + re.sub(r"[^a-z0-9]+", "_", doc.lower()).strip("_")
             try:
                 await update_checklist_status(
@@ -1849,15 +1901,16 @@ _CONCLUDED = (ChatStatus.completed, ChatStatus.no_availability, ChatStatus.unabl
 
 def _ist_to_utc_iso(day: str, clock: time) -> str:
     """The office's slot is in Indian time; the appointments table stores UTC."""
-    from zoneinfo import ZoneInfo
-    from datetime import date as _date
-    local = datetime.combine(_date.fromisoformat(day), clock).replace(tzinfo=ZoneInfo("Asia/Kolkata"))
+    from datetime import date as _date, timedelta as _td
+    # fixed +05:30: India has no daylight saving, and zoneinfo has no data on Windows without tzdata
+    local = datetime.combine(_date.fromisoformat(day), clock).replace(tzinfo=timezone(_td(hours=5, minutes=30)))
     return local.astimezone(timezone.utc).isoformat()
 
 
 async def _record_confirmed_simulated_appointment(chat_session: OfficeChatSession, scheme: Any, office: Optional[OfficeContact]) -> None:
-    """Calendar invite, appointments row and opt-in email for a confirmed simulated appointment. Callers invoke this only
-    on the transition into simulated_confirmed, so an appointment is never recorded or emailed twice."""
+    """A confirmed simulated appointment goes through the same pipeline as one the user adds: an appointments row, a
+    reminder before it and a "how did it go?" email after it (when emails are on). The confirmation email is sent
+    straight away. Callers invoke this only on the transition into simulated_confirmed, so nothing happens twice."""
     offer = chat_session.appointment
     if not offer:
         return
@@ -1870,24 +1923,29 @@ async def _record_confirmed_simulated_appointment(chat_session: OfficeChatSessio
         apt_t = parse_time_str(offer.time) if offer.time else None
         if offer.date and apt_t:
             _date.fromisoformat(offer.date)
-            await create_appointment(
+            view = await api_create_appointment(
                 session_id=chat_session.session_id,
-                appointment_id=f"sim_apt_{chat_session.chat_id}",
-                purpose=f"[SIMULATED] Document verification for {scheme.name}",
-                scheduled_at_utc=_ist_to_utc_iso(offer.date, apt_t),
-                location=offer.location or (office.office_name if office else None),
-                status="scheduled",
-                status_source="simulated_confirmed",
-                related_task_id=f"chat_{chat_session.chat_id}",
+                payload=CreateAppointmentRequest(
+                    purpose=f"[SIMULATED] Document verification for {scheme.name}",
+                    scheduled_at_utc=_ist_to_utc_iso(offer.date, apt_t),
+                    location=offer.location or (office.office_name if office else None),
+                    related_task_id=f"chat_{chat_session.chat_id}",
+                    remind_email=True,
+                ),
             )
+            await update_appointment(appointment_id=view.appointment_id, status_source="simulated_confirmed")
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Could not persist simulated appointment row: %s", exc)
+        logger.warning("Could not persist simulated appointment row: %s", type(exc).__name__)
     await _trigger_simulated_appointment_notification(
         session_id=chat_session.session_id,
         scheme_name=scheme.name,
         offer=offer,
         office_name=(office.office_name if office else None) or offer.location,
     )
+    try:
+        await process_due_notifications()  # send the confirmation now rather than at the next check
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not send the confirmation email now: %s", type(exc).__name__)
 
 
 async def _trigger_simulated_appointment_notification(

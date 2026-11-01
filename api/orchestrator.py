@@ -7,6 +7,8 @@ persisting all citizen state across all workflow stages in SQLite.
 """
 from __future__ import annotations
 
+import os
+
 import logging
 from typing import Any, Optional, Sequence, Union
 
@@ -168,6 +170,10 @@ async def run_discovery(
         raise KeyError(f"Session '{session_id}' not found in database.")
 
     effective_scope = search_scope or session.scope or "guided"
+    # Demo switch: UNLOCKED_FORCE_FALLBACK=1 serves the offline fallback schemes for every search, so a demo
+    # shows working results even when live search is slow or out of quota.
+    if os.getenv("UNLOCKED_FORCE_FALLBACK", "").strip().lower() in ("1", "true", "yes", "on"):
+        effective_scope = "fallback"
     effective_language = preferred_language or session.preferred_language or "en"
     warnings: list[str] = []
     diagnostics: dict[str, int] = {}

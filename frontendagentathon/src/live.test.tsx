@@ -291,35 +291,54 @@ const openPlan = async () => {
 };
 const optIn = async (address = "me@example.com") => {
   fireEvent.change(screen.getByLabelText("YOUR EMAIL ADDRESS"), { target: { value: address } });
-  fireEvent.click(screen.getByRole("checkbox", { name: /Yes, email me my plan/ }));
   fireEvent.click(screen.getByRole("button", { name: "Turn on emails" }));
   await screen.findByText("Emails on");
 };
 const prefPosts = () => backend.calls.filter((c) => c.path.endsWith("/notifications/preferences") && c.method === "POST");
 
+describe("demo fallback switch", () => {
+  it("searches the offline fallback schemes when the site is opened with ?fallback=1", async () => {
+    open("/details?fallback=1");
+    fireEvent.click(screen.getByRole("link", { name: /Find schemes/ }));
+    await screen.findByText("2 potential schemes identified.");
+    expect(backend.calls.find((c) => c.path === "/api/sessions")!.body).toMatchObject({ scope: "fallback" });
+  });
+});
+
 describe("email follow-through", () => {
-  it("is off until the user opts in with an address and consent", async () => {
+  it("is off until an address is given, and a bad address is rejected", async () => {
     await openPlan();
     expect(screen.getByText("Emails off")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Send it to me now/ })).toBeNull();
-    // no consent ticked: nothing is saved
-    fireEvent.change(screen.getByLabelText("YOUR EMAIL ADDRESS"), { target: { value: "me@example.com" } });
-    fireEvent.click(screen.getByRole("button", { name: "Turn on emails" }));
-    expect((await screen.findByRole("alert")).textContent).toBe("Tick the box to let us email you.");
-    expect(prefPosts()).toHaveLength(0);
-    // a bad address is rejected too
-    fireEvent.click(screen.getByRole("checkbox", { name: /Yes, email me my plan/ }));
+    expect(screen.queryByRole("checkbox", { name: /Yes, email me my plan/ })).toBeNull(); // no consent box
     fireEvent.change(screen.getByLabelText("YOUR EMAIL ADDRESS"), { target: { value: "not-an-email" } });
     fireEvent.click(screen.getByRole("button", { name: "Turn on emails" }));
-    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("Enter a valid email address."));
+    expect((await screen.findByRole("alert")).textContent).toBe("Enter a valid email address.");
     expect(prefPosts()).toHaveLength(0);
   });
 
-  it("saves the opt-in with consent and the reminder choice", async () => {
+  it("turns emails on from the address given on step 1", async () => {
+    open("/start");
+    fireEvent.change(screen.getByPlaceholderText("you@example.com"), { target: { value: "step1@example.com" } });
+    fireEvent.click(screen.getByRole("link", { name: /Continue with/ }));
+    fireEvent.click(await screen.findByRole("link", { name: /Find schemes/ }));
+    await screen.findByText("2 potential schemes identified.");
+    await waitFor(() => expect(prefPosts()).toHaveLength(1));
+    expect(prefPosts()[0].body).toMatchObject({ email: "step1@example.com", email_enabled: true, consent_version: "step1" });
+  });
+
+  it("won't continue from step 1 with an invalid address", () => {
+    open("/start");
+    fireEvent.change(screen.getByPlaceholderText("you@example.com"), { target: { value: "nope" } });
+    expect(screen.queryByRole("link", { name: /Continue with/ })).toBeNull();
+    expect(screen.getByText("Check your email address to continue.")).toBeTruthy();
+  });
+
+  it("saves the address and the reminder choice", async () => {
     await openPlan();
     await optIn();
     const saved = prefPosts()[0].body as Record<string, unknown>;
-    expect(saved).toMatchObject({ email: "me@example.com", email_enabled: true, consent_version: "v1" });
+    expect(saved).toMatchObject({ email: "me@example.com", email_enabled: true, consent_version: "step1" });
     expect(saved.categories).toEqual({ action_plan_summary: true, appointment_reminders: true, appointment_follow_up: true });
     expect(screen.getByText("me@example.com")).toBeTruthy();
   });

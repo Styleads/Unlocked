@@ -12,6 +12,8 @@ export type Answer = string | "__unsure" | "__prefer";
 export type Session = {
   theme: Theme;
   scope: "guided" | "all";
+  /** Asked on step 1: confirmations, reminders and follow-ups go here. */
+  email: string;
   categories: Record<Category, boolean>;
   details: Details;
   answers: Record<string, Answer | undefined>;
@@ -34,6 +36,7 @@ const getStoredTheme = (): Theme => {
 
 const defaults = (): Omit<Session, "theme"> => ({
   scope: "guided",
+  email: "",
   categories: { Scholarships: true, "Fee concessions": true, Healthcare: false, Pensions: false, Subsidies: false },
   details: { state: "Karnataka", district: "", age: "", edu: "", need: "" },
   answers: {},
@@ -61,6 +64,7 @@ const initialSession = (): Session => {
   return {
     theme: getStoredTheme(),
     scope: saved.scope === "all" ? "all" : "guided",
+    email: typeof saved.email === "string" ? saved.email : "",
     categories: { ...base.categories, ...(saved.categories ?? {}) },
     details: { ...base.details, ...(saved.details ?? {}) },
     answers: { ...(saved.answers ?? {}) },

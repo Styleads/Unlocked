@@ -27,6 +27,7 @@ const KEY = "unlocked_live_v1";
 const EMPTY: Saved = { sessionId: null, discoveredKey: null, answers: {}, shown: [], selected: null, sourceMode: null, warnings: [] };
 
 const load = (): Saved => {
+  forceFallback(); // record ?fallback= while it is still in the URL: in-app navigation drops the query string
   try {
     const raw = sessionStorage.getItem(KEY);
     return raw ? { ...EMPTY, ...JSON.parse(raw) } : EMPTY;
@@ -35,11 +36,27 @@ const load = (): Saved => {
   }
 };
 
+export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * Demo switch: open the site with ?fallback=1 to search the offline fallback schemes (?fallback=0 turns it off).
+ * It is remembered for the tab, so it survives moving between pages.
+ */
+export function forceFallback(): boolean {
+  try {
+    const p = new URLSearchParams(window.location.search).get("fallback");
+    if (p !== null) sessionStorage.setItem("unlocked_force_fallback", p === "0" || p === "false" ? "0" : "1");
+    return sessionStorage.getItem("unlocked_force_fallback") === "1";
+  } catch {
+    return false;
+  }
+}
+
 /** Backend attributes the Context form can supply (see contextFrom). */
 export const CONTEXT_ATTRIBUTES = new Set(["state", "district", "age", "education_level"]);
 
 /** What we tell the backend about the user, built only from what they typed on the Context page. */
-export function contextFrom(session: Session): { context: Record<string, unknown>; scope: "guided" | "all" } {
+export function contextFrom(session: Session): { context: Record<string, unknown>; scope: "guided" | "all" | "fallback" } {
   const d = session.details;
   const edu = EDU_OPTIONS.find((o) => o.value === d.edu)?.api;
   const age = d.age.trim() === "" ? undefined : Number(d.age);
@@ -52,7 +69,7 @@ export function contextFrom(session: Session): { context: Record<string, unknown
     ...(d.need.trim() ? { other_details: { need: d.need.trim() } } : {}),
     interests: guided ? CATEGORIES.filter((c) => session.categories[c]) : [],
   };
-  return { context, scope: guided ? "guided" : "all" };
+  return { context, scope: forceFallback() ? "fallback" : guided ? "guided" : "all" };
 }
 
 type Begin = { ok: true } | { ok: false; reason: "unreachable" | "error"; message: string };
@@ -140,6 +157,14 @@ export function LiveProvider({ children }: { children: ReactNode }) {
             // new details mean a new session; don't leave the previous one (and its answers) on the server
             if (saved.sessionId) void api.deleteSession(saved.sessionId).catch(() => undefined);
             id = (await api.createSession(context, scope)).session_id;
+          }
+          // the email from step 1 turns on confirmations, reminders and follow-ups for this session
+          const address = session.email.trim();
+          if (EMAIL_RE.test(address)) {
+            await api.savePrefs(id, {
+              email: address, email_enabled: true, consent_version: "step1",
+              categories: { action_plan_summary: true, appointment_reminders: true, appointment_follow_up: true, simulated_appointment_confirmed: true },
+            }).catch(() => undefined); // email is a convenience: discovery goes on without it
           }
           const found = await api.discover(id);
           setSchemes(found.schemes);

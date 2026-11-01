@@ -49,6 +49,16 @@ None open.
 
 ## Session log
 
+### 2026-11-01 (Demo flow)
+- Email on step 1 (Start page) turns emails on for the session; consent checkbox removed. Office chat runs inline in every Next-steps scheme card: pick the office's response, it auto-plays and confirms. Confirmation -> email now + reminder + follow-up + appointment row (agent4/DECISIONS.md 25-26).
+- Demo fallback: `?fallback=1` in the site URL or `UNLOCKED_FORCE_FALLBACK=1` for the backend.
+
+### 2026-11-01 (After-appointment follow-up)
+- Agent 4 `follow_up.py`: decides when an appointment is over and needs a "How did it go?", and turns the answer into next steps (agent4/DECISIONS.md 23-24). API: `GET /api/sessions/{id}/follow-ups`; the outcome endpoint now applies the plan (status, new date, return visit, documents to the checklist) and stores it in `outcome_details.plan`.
+- Frontend: "How did it go?" card at the top of the Plan page (`pages/AfterAppointment.tsx`), next steps shown after answering, in the Appointments list, and on the email follow-up page.
+- Fixed: `ZoneInfo("Asia/Kolkata")` failed on Windows, so confirmed simulated appointments were never saved; now a fixed +05:30 offset.
+- Open: "ask later" questions (decision, benefit received) are stored in the plan but not yet asked again on a schedule.
+
 ### 2026-11-01 (Review of feat/whatsappsim + Office Chat in the frontend)
 - Merged `origin/feat/whatsappsim` onto main on branch `fix/whatsappsim-review` and fixed what the review found: model-decided statuses (now deterministic, model rewords only), invented slot/hours/preferences/phone numbers, invented fallback office contacts (now `simulated`/`unverified`), no guards on advance/user-input/finish, IST stamped as UTC, enum text in the outcome, duplicate confirmations, broken `interactive_cli` office chat (now drives the real endpoints). See `agent4/DECISIONS.md` 20-22. 665 backend tests pass.
 - Frontend: new `/office-chat` page (`pages/OfficeChat.tsx`), `api.ts` calls, entry button "Try an office chat (simulated)" in Next steps. 66 frontend tests pass (7 new in `office-chat.test.tsx`).

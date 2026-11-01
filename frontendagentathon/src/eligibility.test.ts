@@ -4,7 +4,7 @@ import { QUESTIONS, SCHEMES } from "./data";
 import type { Session } from "./session";
 
 const session = (answers: Session["answers"] = {}, age = ""): Session => ({
-  theme: "dark", scope: "guided",
+  theme: "dark", scope: "guided", email: "",
   categories: { Scholarships: true, "Fee concessions": true, Healthcare: false, Pensions: false, Subsidies: false },
   details: { state: "Karnataka", district: "", age, edu: "", need: "" },
   answers, docStatus: {}, apply: {},
