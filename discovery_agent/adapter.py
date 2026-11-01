@@ -283,7 +283,8 @@ def to_canonical_scheme(raw: Any) -> CanonicalSchemeRecord:
     contact_mail = data.get("contact_email") or raw_office.get("email") or raw_office.get("contact_email")
     reception_num = data.get("reception_number") or raw_office.get("reception_number") or data.get("contact_phone")
     contact_src = data.get("contact_source") or raw_office.get("contact_source") or "website"
-    contact_verif = raw_office.get("verification_status") or "verified"
+    # Contact details are unverified unless a source said otherwise; a missing flag never means "verified".
+    contact_verif = raw_office.get("verification_status") or "unverified"
 
     unified_office_contact = {
         "office_name": office_name,
@@ -292,7 +293,7 @@ def to_canonical_scheme(raw: Any) -> CanonicalSchemeRecord:
         "whatsapp_number": whatsapp_num,
         "email": contact_mail,
         "reception_number": reception_num,
-        "source_url": data.get("source_url") or raw_office.get("source_url") or (official_sources[0] if official_sources else None),
+        "source_url": raw_office.get("source_url") or data.get("contact_source_url"),  # never borrow the scheme page as the contact's source
         "contact_source": contact_src,
         "verification_status": contact_verif,
     }
@@ -315,7 +316,7 @@ def to_canonical_scheme(raw: Any) -> CanonicalSchemeRecord:
         deadline_source_url=data.get("deadline_source_url"),
         contact_email=contact_mail,
         contact_email_source_url=data.get("contact_email_source_url"),
-        contact_phone=reception_num,
+        contact_phone=data.get("contact_phone") or reception_num,
         contact_phone_source_url=data.get("contact_phone_source_url"),
         office_name=office_name,
         office_address=office_address,

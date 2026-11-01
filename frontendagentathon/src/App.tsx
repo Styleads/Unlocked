@@ -11,6 +11,7 @@ import Results from "./pages/Results";
 import Scheme from "./pages/Scheme";
 import Plan from "./pages/Plan";
 import FollowUp from "./pages/FollowUp";
+import OfficeChat from "./pages/OfficeChat";
 
 const PAGES: Record<Route, () => JSX.Element> = {
   "/": Landing,
@@ -21,6 +22,7 @@ const PAGES: Record<Route, () => JSX.Element> = {
   "/results": Results,
   "/scheme": Scheme,
   "/plan": Plan,
+  "/office-chat": OfficeChat,
   "/follow-up": FollowUp,
 };
 

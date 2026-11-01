@@ -175,6 +175,41 @@ export type ApiOutcome = {
   additional_documents?: string[];
 };
 
+// ---- Office chat (a simulation: no real office is contacted) ----
+
+export type ApiOfficeMessage = { message_id: string; sender: "unlocked" | "simulated_office" | string; message_text: string; turn_index: number };
+export type ApiOfficeAppointment = { date?: string | null; time?: string | null; status: string; location?: string | null; calendar_ics?: string | null };
+export type ApiUnresolved = {
+  question_id: string;
+  question_text: string;
+  status: string;
+  receiver_whatsapp_number?: string | null;
+  click_to_chat_url?: string | null;
+  draft_message?: string | null;
+};
+export type ApiOfficeChat = {
+  chat_id: string;
+  scheme_id: string;
+  scenario_id: string;
+  simulation_mode: boolean;
+  chat_status: string;
+  appointment_status: string;
+  appointment?: ApiOfficeAppointment | null;
+  messages: ApiOfficeMessage[];
+  unresolved_questions: ApiUnresolved[];
+  next_action?: string | null;
+};
+export type ApiOfficeOutcome = {
+  chat_status: string;
+  appointment_status: string;
+  appointment?: ApiOfficeAppointment | null;
+  unresolved_questions: ApiUnresolved[];
+  calendar_ics?: string | null;
+  summary: string;
+  next_steps: string[];
+};
+export type OfficeChatStart = { scheme_id: string; scenario_id: string; preferred_days: string[]; pre_authorized_confirmation: boolean };
+
 // ---- Transport ----
 
 async function request<T>(path: string, init?: RequestInit & { timeoutMs?: number }): Promise<T> {
@@ -241,6 +276,14 @@ export const api = {
     post<ApiAppointment>(`${sid(id)}/appointments`, body, 30000),
   updateAppointment: (id: string, aid: string, body: { status: string }) =>
     request<ApiAppointment>(`${sid(id)}/appointments/${encodeURIComponent(aid)}`, { method: "PATCH", body: JSON.stringify(body), timeoutMs: 15000 }),
+  // simulated office chat
+  startOfficeChat: (id: string, body: OfficeChatStart) => post<ApiOfficeChat>(`${sid(id)}/office-chats`, body, 30000),
+  advanceOfficeChat: (chatId: string) => post<ApiOfficeChat>(`/api/office-chats/${encodeURIComponent(chatId)}/advance`, {}, 60000),
+  decideOfficeSlot: (chatId: string, approved: boolean) =>
+    post<ApiOfficeChat>(`/api/office-chats/${encodeURIComponent(chatId)}/user-input`, { action: "approve_slot", user_approved_slot: approved }, 30000),
+  finishOfficeChat: (chatId: string) => post<ApiOfficeChat>(`/api/office-chats/${encodeURIComponent(chatId)}/finish`, {}, 15000),
+  officeOutcome: (chatId: string) => request<ApiOfficeOutcome>(`/api/office-chats/${encodeURIComponent(chatId)}/outcome`, { timeoutMs: 15000 }),
+  markQuestionSent: (qid: string) => post<ApiUnresolved>(`/api/unresolved-questions/${encodeURIComponent(qid)}/mark-sent`, {}, 15000),
   // the page behind the link in an email: it needs only the link's token, not a session
   followUp: (token: string) => request<ApiFollowUp>(`/api/follow-up/${encodeURIComponent(token)}`, { timeoutMs: 15000 }),
   followUpOutcome: (token: string, body: ApiOutcome) => post<unknown>(`/api/follow-up/${encodeURIComponent(token)}/outcome`, body, 20000),

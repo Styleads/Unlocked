@@ -1844,6 +1844,52 @@ def _generate_simulated_ics(scheme: Any, offer: AppointmentOffer) -> Optional[st
         return None
 
 
+_CONCLUDED = (ChatStatus.completed, ChatStatus.no_availability, ChatStatus.unable_to_resolve, ChatStatus.cancelled)
+
+
+def _ist_to_utc_iso(day: str, clock: time) -> str:
+    """The office's slot is in Indian time; the appointments table stores UTC."""
+    from zoneinfo import ZoneInfo
+    from datetime import date as _date
+    local = datetime.combine(_date.fromisoformat(day), clock).replace(tzinfo=ZoneInfo("Asia/Kolkata"))
+    return local.astimezone(timezone.utc).isoformat()
+
+
+async def _record_confirmed_simulated_appointment(chat_session: OfficeChatSession, scheme: Any, office: Optional[OfficeContact]) -> None:
+    """Calendar invite, appointments row and opt-in email for a confirmed simulated appointment. Callers invoke this only
+    on the transition into simulated_confirmed, so an appointment is never recorded or emailed twice."""
+    offer = chat_session.appointment
+    if not offer:
+        return
+    ics_text = _generate_simulated_ics(scheme, offer)
+    if ics_text:
+        offer.calendar_ics = ics_text
+    try:
+        from datetime import date as _date
+        from agent4.office_chat_agent import parse_time_str
+        apt_t = parse_time_str(offer.time) if offer.time else None
+        if offer.date and apt_t:
+            _date.fromisoformat(offer.date)
+            await create_appointment(
+                session_id=chat_session.session_id,
+                appointment_id=f"sim_apt_{chat_session.chat_id}",
+                purpose=f"[SIMULATED] Document verification for {scheme.name}",
+                scheduled_at_utc=_ist_to_utc_iso(offer.date, apt_t),
+                location=offer.location or (office.office_name if office else None),
+                status="scheduled",
+                status_source="simulated_confirmed",
+                related_task_id=f"chat_{chat_session.chat_id}",
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not persist simulated appointment row: %s", exc)
+    await _trigger_simulated_appointment_notification(
+        session_id=chat_session.session_id,
+        scheme_name=scheme.name,
+        offer=offer,
+        office_name=(office.office_name if office else None) or offer.location,
+    )
+
+
 async def _trigger_simulated_appointment_notification(
     session_id: str,
     scheme_name: str,
@@ -1915,13 +1961,11 @@ async def api_create_office_chat(
                     windows.append(w)
                 elif isinstance(w, dict):
                     windows.append(TimeWindow(**w))
-        if not windows:
-            windows = [TimeWindow(start="10:00", end="13:00")]
-
+        # No days or windows given means no constraint, not Monday and Tuesday mornings.
         prefs = UserAppointmentPreferences(
             session_id=session_id,
             scheme_id=payload.scheme_id,
-            preferred_days=payload.preferred_days or ["monday", "tuesday"],
+            preferred_days=payload.preferred_days or [],
             preferred_windows=windows,
             pre_authorized_confirmation=payload.pre_authorized_confirmation,
         )
@@ -1936,16 +1980,26 @@ async def api_create_office_chat(
     if not office:
         # Build contact from scheme metadata
         raw_contact = getattr(scheme, "office_contact", {}) or {}
+        # Only what the scheme data actually carries; a made-up address, hours or number would look official. The
+        # contact is marked simulated/unverified unless the data says otherwise.
+        try:
+            verification = VerificationStatus(raw_contact.get("verification_status") or "unverified")
+        except ValueError:
+            verification = VerificationStatus.unverified
+        try:
+            source = ContactSource(raw_contact.get("contact_source") or "simulated")
+        except ValueError:
+            source = ContactSource.simulated
         office = OfficeContact(
             scheme_id=payload.scheme_id,
-            office_name=getattr(scheme, "office_name", None) or raw_contact.get("office_name") or f"{scheme.department or 'Karnataka Welfare'} Desk",
-            office_address=getattr(scheme, "office_address", None) or raw_contact.get("office_address") or "Bengaluru, Karnataka",
-            office_hours=getattr(scheme, "office_hours", None) or raw_contact.get("office_hours") or {"monday": {"open": "10:00", "close": "17:30"}, "timezone": "Asia/Kolkata"},
-            whatsapp_number=getattr(scheme, "whatsapp_number", None) or raw_contact.get("whatsapp_number") or "+918277712345",
+            office_name=getattr(scheme, "office_name", None) or raw_contact.get("office_name") or f"{scheme.department or 'Welfare'} Desk",
+            office_address=getattr(scheme, "office_address", None) or raw_contact.get("office_address"),
+            office_hours=getattr(scheme, "office_hours", None) or raw_contact.get("office_hours"),
+            whatsapp_number=getattr(scheme, "whatsapp_number", None) or raw_contact.get("whatsapp_number"),
             email=getattr(scheme, "contact_email", None) or raw_contact.get("email"),
             reception_number=getattr(scheme, "reception_number", None) or raw_contact.get("reception_number"),
-            contact_source=ContactSource.website,
-            verification_status=VerificationStatus.verified,
+            contact_source=source,
+            verification_status=verification,
         )
         await save_office_contact(office)
 
@@ -2036,7 +2090,10 @@ async def api_advance_office_chat(
     if not chat_session:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Office chat '{chat_id}' not found.")
 
-    if chat_session.chat_status in (ChatStatus.completed, ChatStatus.no_availability, ChatStatus.unable_to_resolve, ChatStatus.cancelled):
+    if chat_session.appointment_status == AppointmentStatus.awaiting_user_approval and chat_session.chat_status not in _CONCLUDED:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="The applicant must approve or decline the offered slot before the chat continues.")
+
+    if chat_session.chat_status in _CONCLUDED:
         messages = await list_office_chat_messages(chat_id)
         uqs = await list_unresolved_questions(chat_session.session_id, chat_id=chat_id)
         return _build_office_chat_view(chat_session, messages, uqs, next_action="chat_already_concluded")
@@ -2086,6 +2143,8 @@ async def api_advance_office_chat(
         scheme=scheme_ctx,
         history=all_msgs,
         representative_message=rep_result.message,
+        llm=_normalizer_llm(),  # None without a key; the model may only reword
+        rep_result=rep_result.model_dump(),
     )
 
     asst_msg = OfficeChatMessage(
@@ -2098,7 +2157,10 @@ async def api_advance_office_chat(
     await add_office_chat_message(asst_msg)
 
     # 3. Update session state
+    was_confirmed = chat_session.appointment_status == AppointmentStatus.simulated_confirmed
     chat_session.chat_status = asst_decision.conversation_status
+    if rep_result.is_terminal and chat_session.chat_status in (ChatStatus.in_progress, ChatStatus.created):
+        chat_session.chat_status = ChatStatus.manual_followup_required  # the script has ended without a result
     if asst_decision.appointment_offer:
         chat_session.appointment = asst_decision.appointment_offer
         chat_session.appointment_status = asst_decision.appointment_offer.status
@@ -2112,40 +2174,8 @@ async def api_advance_office_chat(
     if asst_decision.conversation_status in (ChatStatus.completed, ChatStatus.no_availability, ChatStatus.unable_to_resolve):
         chat_session.completed_at = now_utc()
 
-    # Calendar invite generation on explicit simulated confirmation
-    if chat_session.appointment_status == AppointmentStatus.simulated_confirmed and chat_session.appointment:
-        ics_text = _generate_simulated_ics(scheme, chat_session.appointment)
-        if ics_text:
-            chat_session.appointment.calendar_ics = ics_text
-
-        # Record in appointments table
-        try:
-            from datetime import date
-            from agent4.office_chat_agent import parse_time_str
-            apt_d = date.fromisoformat(chat_session.appointment.date) if chat_session.appointment.date else None
-            apt_t = parse_time_str(chat_session.appointment.time) if chat_session.appointment.time else None
-            if apt_d and apt_t:
-                apt_id = f"sim_apt_{chat_session.chat_id}"
-                sched_iso = datetime.combine(apt_d, apt_t).replace(tzinfo=timezone.utc).isoformat()
-                await create_appointment(
-                    session_id=chat_session.session_id,
-                    appointment_id=apt_id,
-                    purpose=f"[SIMULATED] Document verification for {scheme.name}",
-                    scheduled_at_utc=sched_iso,
-                    location=chat_session.appointment.location or (office.office_name if office else "Office"),
-                    status="scheduled",
-                    status_source="simulated_confirmed",
-                    related_task_id=f"chat_{chat_session.chat_id}",
-                )
-        except Exception as exc:
-            logger.warning("Could not persist simulated appointment row: %s", exc)
-
-        await _trigger_simulated_appointment_notification(
-            session_id=chat_session.session_id,
-            scheme_name=scheme.name,
-            offer=chat_session.appointment,
-            office_name=office.office_name if office else None,
-        )
+    if chat_session.appointment_status == AppointmentStatus.simulated_confirmed and chat_session.appointment and not was_confirmed:
+        await _record_confirmed_simulated_appointment(chat_session, scheme, office)
 
     await update_office_chat_session(chat_session)
 
@@ -2190,22 +2220,17 @@ async def api_submit_office_chat_user_input(
     scheme = await get_session_scheme(chat_session.session_id, chat_session.scheme_id)
 
     if payload.action == "approve_slot":
+        # Only a slot that is actually waiting for the applicant can be approved or declined.
+        if chat_session.appointment_status != AppointmentStatus.awaiting_user_approval or not chat_session.appointment or chat_session.chat_status in _CONCLUDED:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="There is no offered slot waiting for the applicant's decision.")
         if payload.user_approved_slot:
             chat_session.appointment_status = AppointmentStatus.simulated_confirmed
             chat_session.chat_status = ChatStatus.completed
             chat_session.completed_at = now_utc()
-            if chat_session.appointment:
-                chat_session.appointment.status = AppointmentStatus.simulated_confirmed
-                if scheme:
-                    ics_text = _generate_simulated_ics(scheme, chat_session.appointment)
-                    if ics_text:
-                        chat_session.appointment.calendar_ics = ics_text
-                    await _trigger_simulated_appointment_notification(
-                        session_id=chat_session.session_id,
-                        scheme_name=scheme.name,
-                        offer=chat_session.appointment,
-                        office_name=chat_session.appointment.location,
-                    )
+            chat_session.appointment.status = AppointmentStatus.simulated_confirmed
+            if scheme:
+                office = await get_office_contact(chat_session.office_id) if chat_session.office_id else None
+                await _record_confirmed_simulated_appointment(chat_session, scheme, office)
 
             # Record user confirmation message
             confirm_msg = OfficeChatMessage(
@@ -2230,6 +2255,8 @@ async def api_submit_office_chat_user_input(
 
     elif payload.action == "submit_info" and payload.unresolved_question_id:
         uq = await get_unresolved_question(payload.unresolved_question_id)
+        if not uq or uq.chat_id != chat_id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="That question does not belong to this chat.")
         if uq:
             uq.status = UnresolvedQuestionStatus.resolved
             await update_unresolved_question(uq)
@@ -2252,8 +2279,12 @@ async def api_finish_office_chat(
     if not chat_session:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Office chat '{chat_id}' not found.")
 
-    if chat_session.chat_status != ChatStatus.completed:
-        chat_session.chat_status = ChatStatus.completed
+    if chat_session.chat_status not in _CONCLUDED:
+        # Ending early without a confirmed appointment is a cancellation, not a success.
+        confirmed = chat_session.appointment_status == AppointmentStatus.simulated_confirmed
+        chat_session.chat_status = ChatStatus.completed if confirmed else ChatStatus.cancelled
+        if not confirmed and chat_session.appointment_status in (AppointmentStatus.offered, AppointmentStatus.awaiting_user_approval):
+            chat_session.appointment_status = AppointmentStatus.cancelled
         chat_session.completed_at = now_utc()
         await update_office_chat_session(chat_session)
 
@@ -2282,7 +2313,8 @@ async def api_get_office_chat_outcome(
     summary = ""
     next_steps = []
     if chat_session.appointment_status == AppointmentStatus.simulated_confirmed:
-        summary = f"Simulated appointment confirmed for {chat_session.appointment.date} at {chat_session.appointment.time}."
+        appt = chat_session.appointment
+        summary = f"Simulated appointment confirmed for {appt.date or 'the agreed day'} at {appt.time}." if appt else "Simulated appointment confirmed."
         next_steps = [
             "Download and review simulated calendar invite (.ics).",
             "Bring required checklist documents to office verification.",
@@ -2297,7 +2329,7 @@ async def api_get_office_chat_outcome(
         summary = "Simulated enquiry could not be completed over this channel."
         next_steps = ["Contact the official office helpline or visit the portal."]
     else:
-        summary = f"Office communication session status: {chat_session.chat_status}."
+        summary = f"Office communication session status: {chat_session.chat_status.value.replace('_', ' ')}."
         if uqs:
             next_steps.append("Address open unresolved questions via WhatsApp or email draft.")
 

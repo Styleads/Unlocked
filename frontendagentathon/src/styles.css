@@ -871,3 +871,13 @@ textarea.inp { padding: 14px 16px; min-height: 112px; resize: vertical; }
 .bar.indet i { width: 35% !important; animation: indet 1.6s ease-in-out infinite; }
 @keyframes indet { 0% { transform: translateX(-110%); } 100% { transform: translateX(300%); } }
 @media (prefers-reduced-motion: reduce) { .bar.indet i { animation: none; width: 100% !important; opacity: 0.4; } }
+
+/* Office chat (simulated) */
+.oc-banner { padding: 10px 14px; border-radius: 14px; border: 1px solid var(--line-2); background: var(--surface-2); font-size: 14px; color: var(--muted); }
+.oc-log { display: flex; flex-direction: column; gap: 10px; padding: 16px; border-radius: 22px; background: var(--surface-2); border: 1px solid var(--line-2); min-height: 160px; }
+.oc-msg { max-width: 82%; padding: 10px 14px; border-radius: 16px; font-size: 15px; line-height: 1.45; border: 1px solid var(--line-2); background: var(--surface); }
+.oc-msg.me { align-self: flex-end; background: var(--surface-3, var(--surface)); }
+.oc-msg.them { align-self: flex-start; }
+.oc-msg small { display: block; margin-bottom: 2px; font-size: 11px; letter-spacing: 0.04em; color: var(--faint); text-transform: uppercase; }
+.oc-days { display: flex; gap: 8px; flex-wrap: wrap; }
+.oc-days button { min-height: 36px; padding: 0 12px; border-radius: 999px; }

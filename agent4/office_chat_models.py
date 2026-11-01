@@ -51,6 +51,7 @@ class UnresolvedQuestionStatus(str, Enum):
 class ContactSource(str, Enum):
     website = "website"
     receiver_provided = "receiver_provided"
+    simulated = "simulated"  # made up for the demo: never shown as an official contact
     user_provided = "user_provided"
 
 
@@ -83,6 +84,17 @@ class OfficeContact(BaseModel):
     verification_status: VerificationStatus = VerificationStatus.unverified
     last_checked: Optional[datetime] = None
 
+    @field_validator("office_hours", mode="before")
+    @classmethod
+    def _text_hours(cls, v: Any) -> Any:
+        return _hours_validator(v)
+
+
+def _hours_validator(v: Any) -> Any:
+    if isinstance(v, str):
+        return {"notes": v} if v.strip() else None
+    return v
+
 
 class UserAppointmentPreferences(BaseModel):
     """Citizen's preferred days, time windows, and pre-authorization consent."""
@@ -92,10 +104,9 @@ class UserAppointmentPreferences(BaseModel):
     session_id: str = ""
     scheme_id: Optional[str] = None
     office_id: Optional[str] = None
-    preferred_days: List[str] = Field(default_factory=lambda: ["monday", "tuesday"])
-    preferred_windows: List[TimeWindow] = Field(
-        default_factory=lambda: [TimeWindow(start="10:00", end="13:00")]
-    )
+    # Empty means "no constraint": availability the user did not give is unknown, not Monday and Tuesday mornings.
+    preferred_days: List[str] = Field(default_factory=list)
+    preferred_windows: List[TimeWindow] = Field(default_factory=list)
     date_range_start: Optional[date] = None
     date_range_end: Optional[date] = None
     pre_authorized_confirmation: bool = False
@@ -108,7 +119,7 @@ class UserAppointmentPreferences(BaseModel):
             v = [d.strip().lower() for d in v.split(",") if d.strip()]
         elif isinstance(v, list):
             v = [str(d).strip().lower() for d in v if str(d).strip()]
-        return v or ["monday", "tuesday"]
+        return v or []
 
 
 class AppointmentOffer(BaseModel):

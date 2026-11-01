@@ -146,11 +146,16 @@ def render_simulated_appointment_email(
     scheduled_at_str: str,
     location: Optional[str] = None,
     office_name: Optional[str] = None,
+    documents: Optional[list[str]] = None,
 ) -> tuple[str, str, str]:
-    """Render simulated appointment confirmation email watermarked as simulation."""
+    """Render simulated appointment confirmation email watermarked as simulation. `documents` comes from the scheme's own
+    checklist; with none, the email lists none rather than a fixed set that may not apply."""
     subject = f"[SIMULATED DEMO] Appointment Confirmed for {scheme_name}"
     loc_str = f"Location: {location}\n" if location else ""
     office_str = f"Office: {office_name}\n" if office_name else ""
+    docs = [d for d in (documents or []) if d]
+    checklist_text = ("Preparation Checklist:\n" + "\n".join(f"- {d}" for d in docs) + "\n") if docs else ""
+    checklist_html = ("<h3 style=\"color: #1f2937; margin-top: 20px;\">Preparation Checklist:</h3><ul>" + "".join(f"<li>{d}</li>" for d in docs) + "</ul>") if docs else ""
 
     text_body = f"""Hello,
 
@@ -162,11 +167,7 @@ Simulated Appointment Details:
 Scheme: {scheme_name}
 {office_str}Scheduled Date & Time: {scheduled_at_str}
 {loc_str}
-Preparation Checklist:
-- Original Caste and Income RD Certificate
-- Aadhaar Card with NPCI bank seeding
-- College admission letter and e-Attestation acknowledgment
-
+{checklist_text}
 Thank you for exploring Project Unlocked.
 """
 
@@ -181,16 +182,11 @@ Thank you for exploring Project Unlocked.
         <h2 style="color: #059669;">Simulated Appointment Confirmed</h2>
         <p>Your simulated appointment for <strong>{scheme_name}</strong> has been confirmed in the demonstration environment.</p>
         <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
-            <tr><td style="padding: 8px 0; color: #6b7280;">Office:</td><td><strong>{office_name or 'District Welfare Office'}</strong></td></tr>
+            <tr><td style="padding: 8px 0; color: #6b7280;">Office:</td><td><strong>{office_name or 'the (simulated) office desk'}</strong></td></tr>
             <tr><td style="padding: 8px 0; color: #6b7280;">Scheduled Slot:</td><td><strong>{scheduled_at_str}</strong></td></tr>
             <tr><td style="padding: 8px 0; color: #6b7280;">Location:</td><td>{location or 'Designated office verification counter'}</td></tr>
         </table>
-        <h3 style="color: #1f2937; margin-top: 20px;">Preparation Checklist:</h3>
-        <ul>
-            <li>Original Caste and Income RD Certificate</li>
-            <li>Aadhaar Card with NPCI bank seeding</li>
-            <li>College Admission and e-Attestation acknowledgment</li>
-        </ul>
+        {checklist_html}
         <p style="font-size: 12px; color: #6b7280; margin-top: 24px;">Project Unlocked — Transparent Citizen Follow-Through</p>
     </body>
     </html>

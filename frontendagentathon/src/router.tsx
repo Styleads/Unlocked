@@ -10,9 +10,10 @@ export type Route =
   | "/results"
   | "/scheme"
   | "/plan"
+  | "/office-chat"
   | "/follow-up"; // opened from an email: /follow-up/<token>
 
-const ROUTES: Route[] = ["/", "/start", "/details", "/discovering", "/questions", "/results", "/scheme", "/plan"];
+const ROUTES: Route[] = ["/", "/start", "/details", "/discovering", "/questions", "/results", "/scheme", "/plan", "/office-chat"];
 
 function currentRoute(): Route {
   const path = window.location.pathname.replace(/\/+$/, "") || "/";

@@ -67,6 +67,11 @@ def is_time_within_range(t: time, start_t: time, end_t: time) -> bool:
     return start_t <= t <= end_t
 
 
+def _has_day_hours(office_hours: Any) -> bool:
+    """True when the hours say something per day (a text note on its own does not.)"""
+    return isinstance(office_hours, dict) and any(isinstance(v, dict) for v in office_hours.values())
+
+
 class OfficeSimulatorService:
     """Service that acts as the simulated welfare office representative."""
 
@@ -111,11 +116,8 @@ class OfficeSimulatorService:
         office_hours: Optional[Dict[str, Any]],
     ) -> bool:
         """Check whether proposed day and time fall within published office hours."""
-        if not office_hours or not isinstance(office_hours, dict):
-            # If no published hours exist, fallback window is 10:00 - 17:30 Mon-Fri
-            return day.lower() in ["monday", "tuesday", "wednesday", "thursday", "friday"] and (
-                time(10, 0) <= time_val <= time(17, 30)
-            )
+        if not _has_day_hours(office_hours):
+            return True  # hours we do not know cannot rule a slot out
 
         day_key = day.lower()
         if day_key not in office_hours:

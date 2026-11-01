@@ -175,22 +175,11 @@ _RAW_FALLBACK_SCHEMES = [
         "last_verified": "2026-10-31T00:00:00+00:00",
         "claims": [],
         "office_contact": {
-            "office_name": "Social Welfare Department Helpline & e-Attestation Cell",
-            "office_address": "Commissionerate of Social Welfare, 5th Floor, M.S. Building, Dr. B.R. Ambedkar Veedhi, Bengaluru, Karnataka 560001",
-            "office_hours": {
-                "monday": {"open": "10:00", "close": "17:30"},
-                "tuesday": {"open": "10:00", "close": "17:30"},
-                "wednesday": {"open": "10:00", "close": "17:30"},
-                "thursday": {"open": "10:00", "close": "17:30"},
-                "friday": {"open": "10:00", "close": "17:30"},
-                "timezone": "Asia/Kolkata",
-            },
-            "whatsapp_number": "+918277712345",
-            "email": "postmatrichelp@karnataka.gov.in",
-            "reception_number": "080-22634300",
-            "source_url": "https://ssp.postmatric.karnataka.gov.in",
-            "contact_source": "website",
-            "verification_status": "verified",
+            "office_name": "Social Welfare Department Helpline & e-Attestation Cell",  # a descriptive label for the demo desk, not a confirmed office
+            # No address, hours, phone, WhatsApp number or email: none was confirmed from an official source, so
+            # none is made up. The simulated desk uses fixtures instead.
+            "contact_source": "simulated",
+            "verification_status": "unverified",
         },
     },
     {
@@ -297,22 +286,11 @@ _RAW_FALLBACK_SCHEMES = [
         "last_verified": "2026-10-31T00:00:00+00:00",
         "claims": [],
         "office_contact": {
-            "office_name": "Social Welfare Department Directorate of Technical Education Liaison Cell",
-            "office_address": "Palace Road, Bengaluru, Karnataka 560001",
-            "office_hours": {
-                "monday": {"open": "10:00", "close": "17:30"},
-                "tuesday": {"open": "10:00", "close": "17:30"},
-                "wednesday": {"open": "10:00", "close": "17:30"},
-                "thursday": {"open": "10:00", "close": "17:30"},
-                "friday": {"open": "10:00", "close": "17:30"},
-                "timezone": "Asia/Kolkata",
-            },
-            "whatsapp_number": "+918277712345",
-            "email": "swdtechnical@karnataka.gov.in",
-            "reception_number": "080-22634300",
-            "source_url": "https://swd.karnataka.gov.in",
-            "contact_source": "website",
-            "verification_status": "verified",
+            "office_name": "Social Welfare Department Directorate of Technical Education Liaison Cell",  # a descriptive label for the demo desk, not a confirmed office
+            # No address, hours, phone, WhatsApp number or email: none was confirmed from an official source, so
+            # none is made up. The simulated desk uses fixtures instead.
+            "contact_source": "simulated",
+            "verification_status": "unverified",
         },
     },
     {
@@ -419,22 +397,11 @@ _RAW_FALLBACK_SCHEMES = [
         "last_verified": "2026-10-31T00:00:00+00:00",
         "claims": [],
         "office_contact": {
-            "office_name": "District Social Welfare Hostel Allotment Office",
-            "office_address": "District Office Complex, Bengaluru Urban, Karnataka 560009",
-            "office_hours": {
-                "monday": {"open": "10:00", "close": "17:30"},
-                "tuesday": {"open": "10:00", "close": "17:30"},
-                "wednesday": {"open": "10:00", "close": "17:30"},
-                "thursday": {"open": "10:00", "close": "17:30"},
-                "friday": {"open": "10:00", "close": "17:30"},
-                "timezone": "Asia/Kolkata",
-            },
-            "whatsapp_number": "+918277712345",
-            "email": "hosteladmission@karnataka.gov.in",
-            "reception_number": "080-22253782",
-            "source_url": "https://swd.karnataka.gov.in",
-            "contact_source": "website",
-            "verification_status": "verified",
+            "office_name": "District Social Welfare Hostel Allotment Office",  # a descriptive label for the demo desk, not a confirmed office
+            # No address, hours, phone, WhatsApp number or email: none was confirmed from an official source, so
+            # none is made up. The simulated desk uses fixtures instead.
+            "contact_source": "simulated",
+            "verification_status": "unverified",
         },
     },
     {
@@ -518,22 +485,11 @@ _RAW_FALLBACK_SCHEMES = [
         "last_verified": "2025-01-15T00:00:00+00:00",
         "claims": [],
         "office_contact": {
-            "office_name": "District Joint Director of Agriculture & Samrakshane Cell",
-            "office_address": "Krishi Bhavan, Nrupathunga Road, Bengaluru, Karnataka 560001",
-            "office_hours": {
-                "monday": {"open": "10:00", "close": "17:30"},
-                "tuesday": {"open": "10:00", "close": "17:30"},
-                "wednesday": {"open": "10:00", "close": "17:30"},
-                "thursday": {"open": "10:00", "close": "17:30"},
-                "friday": {"open": "10:00", "close": "17:30"},
-                "timezone": "Asia/Kolkata",
-            },
-            "whatsapp_number": "+918277712346",
-            "email": "fasalbima-ka@nic.in",
-            "reception_number": "080-22212818",
-            "source_url": "https://samrakshane.karnataka.gov.in",
-            "contact_source": "website",
-            "verification_status": "verified",
+            "office_name": "District Joint Director of Agriculture & Samrakshane Cell",  # a descriptive label for the demo desk, not a confirmed office
+            # No address, hours, phone, WhatsApp number or email: none was confirmed from an official source, so
+            # none is made up. The simulated desk uses fixtures instead.
+            "contact_source": "simulated",
+            "verification_status": "unverified",
         },
     },
     {
@@ -618,22 +574,11 @@ _RAW_FALLBACK_SCHEMES = [
         "last_verified": "2025-01-15T00:00:00+00:00",
         "claims": [],
         "office_contact": {
-            "office_name": "Raitha Samparka Kendra (RSK) & PM-KISAN Nodal Office",
-            "office_address": "Krishi Bhavan, Hudson Circle, Bengaluru, Karnataka 560001",
-            "office_hours": {
-                "monday": {"open": "10:00", "close": "17:30"},
-                "tuesday": {"open": "10:00", "close": "17:30"},
-                "wednesday": {"open": "10:00", "close": "17:30"},
-                "thursday": {"open": "10:00", "close": "17:30"},
-                "friday": {"open": "10:00", "close": "17:30"},
-                "timezone": "Asia/Kolkata",
-            },
-            "whatsapp_number": "+918277712346",
-            "email": "pmkisan-ka@gov.in",
-            "reception_number": "080-22212818",
-            "source_url": "https://pmkisan.gov.in",
-            "contact_source": "website",
-            "verification_status": "verified",
+            "office_name": "Raitha Samparka Kendra (RSK) & PM-KISAN Nodal Office",  # a descriptive label for the demo desk, not a confirmed office
+            # No address, hours, phone, WhatsApp number or email: none was confirmed from an official source, so
+            # none is made up. The simulated desk uses fixtures instead.
+            "contact_source": "simulated",
+            "verification_status": "unverified",
         },
     },
     {
@@ -721,22 +666,11 @@ _RAW_FALLBACK_SCHEMES = [
         "last_verified": "2025-01-15T00:00:00+00:00",
         "claims": [],
         "office_contact": {
-            "office_name": "Karnataka Agriculture Department Raitha Siri Support Desk",
-            "office_address": "Krishi Bhavan, Nrupathunga Road, Bengaluru, Karnataka 560001",
-            "office_hours": {
-                "monday": {"open": "10:00", "close": "17:30"},
-                "tuesday": {"open": "10:00", "close": "17:30"},
-                "wednesday": {"open": "10:00", "close": "17:30"},
-                "thursday": {"open": "10:00", "close": "17:30"},
-                "friday": {"open": "10:00", "close": "17:30"},
-                "timezone": "Asia/Kolkata",
-            },
-            "whatsapp_number": "+918277712346",
-            "email": "raithasiri-agri@karnataka.gov.in",
-            "reception_number": "080-22212818",
-            "source_url": "https://raitamitra.karnataka.gov.in",
-            "contact_source": "website",
-            "verification_status": "verified",
+            "office_name": "Karnataka Agriculture Department Raitha Siri Support Desk",  # a descriptive label for the demo desk, not a confirmed office
+            # No address, hours, phone, WhatsApp number or email: none was confirmed from an official source, so
+            # none is made up. The simulated desk uses fixtures instead.
+            "contact_source": "simulated",
+            "verification_status": "unverified",
         },
     },
     {
@@ -844,22 +778,11 @@ _RAW_FALLBACK_SCHEMES = [
         "last_verified": "2025-01-15T00:00:00+00:00",
         "claims": [],
         "office_contact": {
-            "office_name": "Backward Classes Welfare Department e-Kalyana Cell",
-            "office_address": "No. 16/D, 3rd Floor, Devaraj Urs Bhavan, Millers Tank Bed Area, Vasanth Nagar, Bengaluru, Karnataka 560052",
-            "office_hours": {
-                "monday": {"open": "10:00", "close": "17:30"},
-                "tuesday": {"open": "10:00", "close": "17:30"},
-                "wednesday": {"open": "10:00", "close": "17:30"},
-                "thursday": {"open": "10:00", "close": "17:30"},
-                "friday": {"open": "10:00", "close": "17:30"},
-                "timezone": "Asia/Kolkata",
-            },
-            "whatsapp_number": "+918277712347",
-            "email": "bcwd.helpline@karnataka.gov.in",
-            "reception_number": "080-22374845",
-            "source_url": "https://bcwd.karnataka.gov.in",
-            "contact_source": "website",
-            "verification_status": "verified",
+            "office_name": "Backward Classes Welfare Department e-Kalyana Cell",  # a descriptive label for the demo desk, not a confirmed office
+            # No address, hours, phone, WhatsApp number or email: none was confirmed from an official source, so
+            # none is made up. The simulated desk uses fixtures instead.
+            "contact_source": "simulated",
+            "verification_status": "unverified",
         },
     },
     {
@@ -934,22 +857,11 @@ _RAW_FALLBACK_SCHEMES = [
         "last_verified": "2025-01-15T00:00:00+00:00",
         "claims": [],
         "office_contact": {
-            "office_name": "Watershed Development Department Micro-Irrigation Cell",
-            "office_address": "7th Floor, KHB Building, Cauvery Bhavan, Bengaluru, Karnataka 560009",
-            "office_hours": {
-                "monday": {"open": "10:00", "close": "17:30"},
-                "tuesday": {"open": "10:00", "close": "17:30"},
-                "wednesday": {"open": "10:00", "close": "17:30"},
-                "thursday": {"open": "10:00", "close": "17:30"},
-                "friday": {"open": "10:00", "close": "17:30"},
-                "timezone": "Asia/Kolkata",
-            },
-            "whatsapp_number": "+918277712346",
-            "email": "pmksy-watershed@karnataka.gov.in",
-            "reception_number": "080-22107380",
-            "source_url": "https://watershed.karnataka.gov.in",
-            "contact_source": "website",
-            "verification_status": "verified",
+            "office_name": "Watershed Development Department Micro-Irrigation Cell",  # a descriptive label for the demo desk, not a confirmed office
+            # No address, hours, phone, WhatsApp number or email: none was confirmed from an official source, so
+            # none is made up. The simulated desk uses fixtures instead.
+            "contact_source": "simulated",
+            "verification_status": "unverified",
         },
     },
 ]

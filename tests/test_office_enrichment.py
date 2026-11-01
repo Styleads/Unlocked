@@ -5,30 +5,21 @@ from discovery_agent.adapter import to_canonical_scheme
 from api.orchestrator import build_scheme_views
 
 
-def test_fallback_schemes_contain_office_contact():
+def test_fallback_schemes_carry_no_invented_office_contact():
     schemes = get_fallback_schemes()
     assert len(schemes) >= 5
 
-    # Check SSP Post-Matric SC/ST scheme
+    for s in schemes:
+        if not s.office_contact:
+            continue
+        # A made-up phone, WhatsApp number, email, address or set of hours would look official: none is shipped.
+        assert not s.whatsapp_number and not s.reception_number and not s.contact_email
+        assert not s.office_address and not s.office_hours
+        assert s.office_contact["contact_source"] == "simulated"
+        assert s.office_contact["verification_status"] == "unverified"
+
     ssp = next(s for s in schemes if s.id == "fallback-ssp-scst-001")
-    assert ssp.office_name == "Social Welfare Department Helpline & e-Attestation Cell"
-    assert "M.S. Building" in ssp.office_address
-    assert ssp.whatsapp_number == "+918277712345"
-    assert ssp.contact_email == "postmatrichelp@karnataka.gov.in"
-    assert ssp.reception_number == "080-22634300"
-    assert ssp.contact_source == "website"
-
-    # Check office hours structure
-    assert isinstance(ssp.office_hours, dict)
-    assert "monday" in ssp.office_hours
-    assert ssp.office_hours["monday"]["open"] == "10:00"
-    assert ssp.office_hours["monday"]["close"] == "17:30"
-    assert ssp.office_hours["timezone"] == "Asia/Kolkata"
-
-    # Check unified office_contact dictionary
-    assert isinstance(ssp.office_contact, dict)
-    assert ssp.office_contact["office_name"] == ssp.office_name
-    assert ssp.office_contact["verification_status"] == "verified"
+    assert ssp.office_name  # a descriptive desk label remains for the simulation
 
 
 def test_adapter_maps_custom_office_contact():
@@ -60,15 +51,21 @@ def test_adapter_maps_custom_office_contact():
     assert record.office_contact["verification_status"] == "verified"
 
 
-def test_scheme_view_exposes_office_contact():
+def test_scheme_view_exposes_office_contact_as_unverified():
     schemes = get_fallback_schemes()
     views = build_scheme_views(schemes=schemes, assessments=[])
     assert len(views) == len(schemes)
 
     ssp_view = next(v for v in views if v.id == "fallback-ssp-scst-001")
-    assert ssp_view.office_name == "Social Welfare Department Helpline & e-Attestation Cell"
-    assert ssp_view.whatsapp_number == "+918277712345"
-    assert ssp_view.reception_number == "080-22634300"
+    assert ssp_view.office_name
+    assert ssp_view.whatsapp_number is None and ssp_view.reception_number is None
     assert ssp_view.office_contact is not None
-    assert ssp_view.office_contact["office_address"] == ssp_view.office_address
+    assert ssp_view.office_contact["verification_status"] == "unverified"
 
+
+def test_a_contact_without_a_verification_flag_is_unverified():
+    record = to_canonical_scheme({
+        "id": "no-flag", "name": "Demo Scheme", "official_sources": ["https://example.gov.in/x"],
+        "office_contact": {"office_name": "Demo Desk", "whatsapp_number": "+919876543210"},
+    })
+    assert record.office_contact["verification_status"] == "unverified"

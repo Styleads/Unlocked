@@ -43,39 +43,6 @@ from .office_chat_models import (
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """
-You are the Action & Follow-through Agent for Project Unlocked, conducting an in-website WhatsApp-style appointment enquiry simulation with a Karnataka government welfare office representative.
-
-CRITICAL PRIVACY & SAFETY RULES:
-1. STRICT ZERO-PII: NEVER disclose the applicant's name, phone number, email address, Aadhaar number, caste, or income.
-2. If the representative asks for applicant documents, credentials, or personal details, reply: "The applicant will provide these documents and details directly. Could you please provide an office WhatsApp number where they can follow up?"
-3. NEVER invent or hallucinate appointment slots, office hours, or contact numbers.
-4. Rely ONLY on the verified scheme facts provided in the context.
-
-TASK:
-Analyze the scheme context, citizen appointment preferences, previous conversation history, and latest representative message.
-Determine:
-1. 'assistant_message': What the assistant should reply.
-2. 'conversation_status': "in_progress", "appointment_offered", "awaiting_user_input", "completed", "no_availability", or "unable_to_resolve".
-3. 'next_action': The next logical step (e.g. "request_explicit_confirmation", "accept_confirmed_slot", "await_user_slot_approval", "collect_receiver_whatsapp", "handoff_unresolved_question", "report_no_availability", "recommend_direct_contact").
-4. 'appointment_offer': Structured slot offer if mentioned (date, time, status).
-5. 'unresolved_questions': List of questions requiring applicant action/clarification.
-6. 'contact_handoff': Channel, whatsapp_number, click_to_chat_url if provided by representative.
-7. 'outcome': Summary of result if conversation has reached a milestone or conclusion.
-
-Return ONLY valid JSON matching this schema:
-{
-  "assistant_message": "...",
-  "conversation_status": "in_progress",
-  "next_action": "...",
-  "appointment_offer": {"date": "YYYY-MM-DD", "time": "HH:MM", "status": "offered"},
-  "unresolved_questions": [],
-  "contact_handoff": null,
-  "outcome": null
-}
-"""
-
-
 def normalize_phone_number(raw_phone: str) -> str:
     """
     Normalize phone number to international digits without '+', spaces, or symbols.
@@ -99,19 +66,15 @@ def format_whatsapp_click_url(phone_number: str, message_text: str) -> str:
 
 
 def parse_time_str(time_str: str) -> Optional[time]:
-    """Parse time string like '11:00', '11:00 AM' into datetime.time."""
+    """Parse '11:00', '11:00 AM', '3 PM', '3PM', '3:00PM' into datetime.time; None when it can't be read."""
     if not time_str:
         return None
-    cleaned = time_str.strip().upper()
-    try:
-        if "AM" in cleaned or "PM" in cleaned:
-            dt = datetime.strptime(cleaned, "%I:%M %p")
-            return dt.time()
-        parts = cleaned.split(":")
-        if len(parts) >= 2:
-            return time(int(parts[0]), int(parts[1]))
-    except Exception:
-        pass
+    cleaned = re.sub(r"\s+", " ", time_str.strip().upper())
+    for fmt in ("%I:%M %p", "%I:%M%p", "%I %p", "%I%p", "%H:%M"):
+        try:
+            return datetime.strptime(cleaned, fmt).time()
+        except ValueError:
+            continue
     return None
 
 
@@ -151,21 +114,17 @@ def check_slot_in_office_hours(
     offered_time: time,
     office: Optional[OfficeContact],
 ) -> bool:
-    """Check if offered slot falls within published office operating hours."""
-    if not office or not office.office_hours or not isinstance(office.office_hours, dict):
-        return offered_day.lower() in ["monday", "tuesday", "wednesday", "thursday", "friday"] and (
-            time(10, 0) <= offered_time <= time(17, 30)
-        )
-
-    day_key = offered_day.lower()
-    if day_key not in office.office_hours:
-        return False
-    sched = office.office_hours.get(day_key)
+    """Check an offered slot against published hours. Hours we don't have (none, or only a text note) rule nothing out."""
+    hours = office.office_hours if office else None
+    if not isinstance(hours, dict) or not any(isinstance(v, dict) for v in hours.values()):
+        return True
+    sched = hours.get(offered_day.lower())
     if not isinstance(sched, dict):
         return False
-
-    st = parse_time_str(sched.get("open", "10:00")) or time(10, 0)
-    et = parse_time_str(sched.get("close", "17:30")) or time(17, 30)
+    st = parse_time_str(sched.get("open", ""))
+    et = parse_time_str(sched.get("close", ""))
+    if not st or not et:
+        return True  # a day listed without readable times: unknown
     return is_time_in_range(offered_time, st, et)
 
 
@@ -193,25 +152,31 @@ def build_initial_office_enquiry(
     )
 
 
-def extract_slot_heuristically(text: str) -> Optional[Tuple[str, str, str]]:
-    """Extract day, date, and time from representative dialogue heuristically."""
-    lowered = text.lower()
-    days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]
-    matched_day = "monday"
-    for d in days:
-        if d in lowered:
-            matched_day = d
-            break
+_DAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+_TIME_RE = re.compile(r"\b(\d{1,2}(?::\d{2})?\s*(?:AM|PM))\b|\b(\d{1,2}:\d{2})\b", re.IGNORECASE)
 
-    # Search for time e.g. 11:00 AM or 11:00
-    time_match = re.search(r"(\d{1,2}:\d{2}\s*(?:AM|PM|am|pm)?)", text)
-    matched_time = time_match.group(1).upper() if time_match else "11:00 AM"
 
-    # Search for date e.g. 2026-11-02 or default upcoming Monday
-    date_match = re.search(r"\b(202\d-\d{2}-\d{2})\b", text)
-    matched_date = date_match.group(1) if date_match else "2026-11-02"
+def extract_slot_heuristically(text: str) -> Optional[Tuple[str, Optional[str], str]]:
+    """Day, date (if written as YYYY-MM-DD) and time named in a message. None unless both a day and a readable time are
+    there: a slot the office did not state is never filled in."""
+    lowered = (text or "").lower()
+    day = next((d for d in _DAYS if re.search(rf"\b{d}\b", lowered)), None)
+    m = _TIME_RE.search(text or "")
+    when = (m.group(1) or m.group(2)).upper() if m else None
+    if not day or not when or parse_time_str(when) is None:
+        return None
+    d = re.search(r"\b(20\d{2}-\d{2}-\d{2})\b", text or "")
+    return day, (d.group(1) if d else None), when
 
-    return matched_day, matched_date, matched_time
+
+def _slot_from(rep_message: str, structured: Optional[dict]) -> Optional[Tuple[str, Optional[str], str]]:
+    """The slot an office offered or confirmed: the simulator's structured data first, else what the message says."""
+    if structured and isinstance(structured, dict):
+        day = str(structured.get("day") or "").strip().lower()
+        when = str(structured.get("time") or "").strip().upper()
+        if day and parse_time_str(when) is not None:
+            return day, (structured.get("date") or None), when
+    return extract_slot_heuristically(rep_message)
 
 
 def extract_whatsapp_heuristically(text: str) -> Optional[str]:
@@ -229,6 +194,23 @@ def extract_whatsapp_heuristically(text: str) -> Optional[str]:
     return None
 
 
+def _says_no_availability(rep_lower: str) -> bool:
+    return bool(re.search(r"\bno (?:appointment )?slots?\b|\bfully booked\b|\bnot available\b|\bunavailable\b|\bno availability\b", rep_lower))
+
+
+def _says_unsupported(rep_lower: str) -> bool:
+    return bool(re.search(r"\bcannot process\b|\bdesk channel\b|\bin-person token\b|\bunsupported\b", rep_lower))
+
+
+def _says_confirmed(rep_lower: str) -> bool:
+    """An explicit confirmation. 'not confirmed' and 'unconfirmed' are not one."""
+    return bool(re.search(r"\bconfirmed\b", rep_lower)) and not re.search(r"\b(?:not|isn't|is not|cannot be|yet to be)\s+confirmed\b", rep_lower)
+
+
+def _offers_slot(rep_lower: str) -> bool:
+    return bool(re.search(r"\bavailable\b|\bslots?\b|\bopen\b", rep_lower)) and not _says_no_availability(rep_lower)
+
+
 def _decide_turn_heuristic(
     chat_session: OfficeChatSession,
     preferences: Optional[UserAppointmentPreferences],
@@ -236,15 +218,19 @@ def _decide_turn_heuristic(
     scheme: SchemeContext,
     history: List[OfficeChatMessage],
     representative_message: str,
+    rep_result: Optional[Dict[str, Any]] = None,
 ) -> AssistantChatTurnDecision:
     """
-    Deterministic dialogue decision engine handling all 4 core scenarios
-    safely without requiring external network access.
+    Deterministic dialogue decision engine for the four core scenarios. Everything it reports (status, slot, contact)
+    comes from what the representative actually said, or from the simulator's structured version of it. It never fills
+    in a slot, a time or a phone number that was not given.
     """
+    rep = rep_result or {}
     rep_lower = representative_message.lower()
+    office_name = (office.office_name if office and office.office_name else None) or "the office"
 
-    # 1. Check for no availability (Scenario B)
-    if "no appointment slots" in rep_lower or "fully booked" in rep_lower or "no slots" in rep_lower:
+    # 1. No availability
+    if _says_no_availability(rep_lower):
         return AssistantChatTurnDecision(
             assistant_message=(
                 "Understood. Since no appointment slots are currently open in that window, I will inform the applicant "
@@ -256,8 +242,8 @@ def _decide_turn_heuristic(
             outcome="No appointment slots available in the requested window.",
         )
 
-    # 2. Check for unsupported channel (Scenario D)
-    if "cannot process" in rep_lower or "desk channel" in rep_lower or "in-person token" in rep_lower or "unsupported" in rep_lower:
+    # 2. Unsupported channel
+    if _says_unsupported(rep_lower):
         return AssistantChatTurnDecision(
             assistant_message=(
                 "Understood. Since this enquiry cannot be handled through this simulation desk, I will advise the applicant "
@@ -269,18 +255,44 @@ def _decide_turn_heuristic(
             outcome="Enquiry unsupported through this desk; direct official contact recommended.",
         )
 
-    # 3. Check for representative requesting personal details (Scenario C Turn 2)
-    if (
-        "admission" in rep_lower
-        or "acknowledgment" in rep_lower
-        or "aadhaar" in rep_lower
-        or "caste" in rep_lower
-        or "income" in rep_lower
-        or "provide the applicant" in rep_lower
-    ) and not ("whatsapp" in rep_lower or "+91" in rep_lower):
-        unresolved = [
-            f"Provide college admission acknowledgment and required certificates for {scheme.name} verification."
-        ]
+    # 3. The representative gives a WhatsApp number for the applicant to follow up on directly
+    receiver_number = rep.get("receiver_whatsapp_number") or extract_whatsapp_heuristically(representative_message)
+    normalized = normalize_phone_number(receiver_number) if receiver_number else ""
+    if normalized and 10 <= len(normalized) <= 13:
+        draft_text = (
+            f"Hello, I am following up regarding an enquiry about {scheme.name}. "
+            "I was asked to clarify document verification details. Could you please confirm the relevant instructions? Thank you."
+        )
+        handoff = ContactHandoff(
+            channel="whatsapp",
+            whatsapp_number=f"+{normalized}",
+            contact_source=ContactSource.receiver_provided,
+            suggested_draft=draft_text,
+            # always built here from the number, never taken from model output
+            click_to_chat_url=format_whatsapp_click_url(normalized, draft_text),
+        )
+        return AssistantChatTurnDecision(
+            assistant_message=f"Thank you. I have recorded the WhatsApp number {handoff.whatsapp_number} for the applicant to follow up directly.",
+            conversation_status=ChatStatus.awaiting_user_input,
+            next_action="handoff_unresolved_question",
+            unresolved_questions=[f"Follow up with the office on WhatsApp: {handoff.whatsapp_number}"],
+            contact_handoff=handoff,
+            outcome=f"Missing information needs the applicant to follow up on WhatsApp ({handoff.whatsapp_number}).",
+        )
+    if "whatsapp" in rep_lower:
+        # mentioned, but no number: ask for it rather than make one up
+        return AssistantChatTurnDecision(
+            assistant_message="Could you please share the WhatsApp number the applicant should use?",
+            conversation_status=ChatStatus.in_progress,
+            next_action="collect_receiver_whatsapp",
+        )
+
+    # 4. The representative asks for the applicant's own details or documents
+    asks_details = rep.get("intent") == "request_missing_info" or bool(
+        re.search(r"\b(?:please provide|provide the applicant|acknowledg(?:e)?ment|aadhaar|admission)\b", rep_lower)
+    )
+    if asks_details:
+        requested = rep.get("requested_info") or "the applicant's own details"
         return AssistantChatTurnDecision(
             assistant_message=(
                 "The applicant will provide these documents and details directly. Could you please provide an official office "
@@ -288,118 +300,103 @@ def _decide_turn_heuristic(
             ),
             conversation_status=ChatStatus.in_progress,
             next_action="collect_receiver_whatsapp",
-            unresolved_questions=unresolved,
+            unresolved_questions=[f"The office asked for: {requested}"],
         )
 
-    # 4. Check for representative providing WhatsApp contact (Scenario C Turn 4)
-    wa_num = extract_whatsapp_heuristically(representative_message)
-    if wa_num or "whatsapp" in rep_lower:
-        extracted_phone = wa_num or "+919845012345"
-        normalized = normalize_phone_number(extracted_phone)
-        draft_text = (
-            f"Hello, I am following up regarding an enquiry about {scheme.name}. "
-            f"I was asked to clarify document verification details. Could you please confirm the relevant instructions? Thank you."
-        )
-        click_url = format_whatsapp_click_url(normalized, draft_text)
-
-        handoff = ContactHandoff(
-            channel="whatsapp",
-            whatsapp_number=f"+{normalized}" if not normalized.startswith("+") else normalized,
-            contact_source=ContactSource.receiver_provided,
-            suggested_draft=draft_text,
-            click_to_chat_url=click_url,
-        )
-        return AssistantChatTurnDecision(
-            assistant_message=f"Thank you. I have recorded the official WhatsApp number {handoff.whatsapp_number} for the citizen to follow up directly.",
-            conversation_status=ChatStatus.awaiting_user_input,
-            next_action="handoff_unresolved_question",
-            unresolved_questions=[f"Clarify document requirements with office via WhatsApp: {handoff.whatsapp_number}"],
-            contact_handoff=handoff,
-            outcome=f"Missing information requires citizen follow-up via receiver WhatsApp ({handoff.whatsapp_number}).",
-        )
-
-    # 5. Check for explicit confirmation (Scenario A Turn 4)
-    if "confirmed" in rep_lower or "is confirmed" in rep_lower or "yes, monday" in rep_lower:
-        slot_info = extract_slot_heuristically(representative_message)
-        matched_day, matched_date, matched_time = slot_info if slot_info else ("monday", "2026-11-02", "11:00 AM")
-
-        auto_confirm = preferences.pre_authorized_confirmation if preferences else False
-        if auto_confirm:
-            # User pre-authorized in-range confirmation -> Accept directly
-            confirmed_offer = AppointmentOffer(
-                date=matched_date,
-                time=matched_time,
-                status=AppointmentStatus.simulated_confirmed,
-                location=office.office_name if office else "Social Welfare Department Office",
-                notes=f"Simulated appointment for {scheme.name} document verification.",
+    # 5. Explicit confirmation of a slot
+    if _says_confirmed(rep_lower):
+        slot = _slot_from(representative_message, rep.get("confirmed_slot") or rep.get("offered_slot"))
+        if slot is None:
+            return AssistantChatTurnDecision(
+                assistant_message="Thank you. Could you please repeat the day and time of the appointment so I can note it correctly?",
+                conversation_status=ChatStatus.in_progress,
+                next_action="clarify_slot",
             )
+        day, slot_date, slot_time = slot
+        t = parse_time_str(slot_time)
+        usable = bool(t) and check_slot_matches_preferences(day, t, preferences) and check_slot_in_office_hours(day, t, office)
+        pre_authorized = bool(preferences and preferences.pre_authorized_confirmation)
+        if pre_authorized and usable:
             return AssistantChatTurnDecision(
                 assistant_message=(
-                    f"Thank you. The simulated appointment for {matched_day.capitalize()} at {matched_time} is confirmed. "
+                    f"Thank you. The simulated appointment for {day.capitalize()} at {slot_time} is confirmed. "
                     "The applicant will bring the required original documents."
                 ),
                 conversation_status=ChatStatus.completed,
                 next_action="conclude_simulation",
-                appointment_offer=confirmed_offer,
-                outcome=f"Simulated appointment explicitly confirmed for {matched_day.capitalize()} at {matched_time}.",
-            )
-        else:
-            # User did NOT pre-authorize -> Pause for user approval
-            pending_offer = AppointmentOffer(
-                date=matched_date,
-                time=matched_time,
-                status=AppointmentStatus.awaiting_user_approval,
-                location=office.office_name if office else "Social Welfare Department Office",
-                notes=f"Simulated appointment offer for {scheme.name} awaiting citizen approval.",
-            )
-            return AssistantChatTurnDecision(
-                assistant_message=(
-                    f"Thank you. I have noted that {matched_day.capitalize()} at {matched_time} is available. "
-                    "I will now present this slot to the applicant for their approval before final confirmation."
+                appointment_offer=AppointmentOffer(
+                    date=slot_date, time=slot_time, status=AppointmentStatus.simulated_confirmed,
+                    location=office_name, notes=f"Simulated appointment for {scheme.name} document verification.",
                 ),
-                conversation_status=ChatStatus.awaiting_user_input,
-                next_action="await_user_slot_approval",
-                appointment_offer=pending_offer,
-                outcome=f"Appointment slot offered for {matched_day.capitalize()} at {matched_time}; awaiting citizen approval.",
+                outcome=f"Simulated appointment explicitly confirmed for {day.capitalize()} at {slot_time}.",
             )
+        # not pre-authorised, or outside what the applicant pre-authorised: it is the applicant's decision
+        return AssistantChatTurnDecision(
+            assistant_message=(
+                f"Thank you. I have noted that {day.capitalize()} at {slot_time} is available. "
+                + ("" if usable or not pre_authorized else "It is outside the times the applicant pre-approved, so ")
+                + "I will now present this slot to the applicant for their approval before final confirmation."
+            ),
+            conversation_status=ChatStatus.awaiting_user_input,
+            next_action="await_user_slot_approval",
+            appointment_offer=AppointmentOffer(
+                date=slot_date, time=slot_time, status=AppointmentStatus.awaiting_user_approval, location=office_name,
+                notes=f"Simulated appointment offer for {scheme.name} awaiting citizen approval.",
+            ),
+            outcome=f"Appointment slot offered for {day.capitalize()} at {slot_time}; awaiting citizen approval.",
+        )
 
-    # 6. Check for slot offer (Scenario A Turn 2)
-    if "open" in rep_lower or "available" in rep_lower or "slots" in rep_lower:
-        slot_info = extract_slot_heuristically(representative_message)
-        matched_day, matched_date, matched_time = slot_info if slot_info else ("monday", "2026-11-02", "11:00 AM")
-
-        parsed_t = parse_time_str(matched_time)
-        in_prefs = check_slot_matches_preferences(matched_day, parsed_t or time(11, 0), preferences)
-        in_hours = check_slot_in_office_hours(matched_day, parsed_t or time(11, 0), office)
-
-        if in_prefs and in_hours:
-            offered = AppointmentOffer(
-                date=matched_date,
-                time=matched_time,
-                status=AppointmentStatus.offered,
-                location=office.office_name if office else "Social Welfare Department Office",
-            )
+    # 6. A slot is offered
+    if _offers_slot(rep_lower):
+        slot = _slot_from(representative_message, rep.get("offered_slot"))
+        if slot is None:
             return AssistantChatTurnDecision(
-                assistant_message=f"Could you please confirm the appointment on {matched_day.capitalize()} at {matched_time} for this simulated enquiry?",
+                assistant_message="Thank you. Which day and time is the available slot?",
+                conversation_status=ChatStatus.in_progress,
+                next_action="clarify_slot",
+            )
+        day, slot_date, slot_time = slot
+        t = parse_time_str(slot_time)
+        if t and check_slot_matches_preferences(day, t, preferences) and check_slot_in_office_hours(day, t, office):
+            return AssistantChatTurnDecision(
+                assistant_message=f"Could you please confirm the appointment on {day.capitalize()} at {slot_time} for this simulated enquiry?",
                 conversation_status=ChatStatus.appointment_offered,
                 next_action="request_explicit_confirmation",
-                appointment_offer=offered,
+                appointment_offer=AppointmentOffer(date=slot_date, time=slot_time, status=AppointmentStatus.offered, location=office_name),
             )
-        else:
-            # Slot does not match preferences
-            pref_days_str = ", ".join(preferences.preferred_days) if preferences else "our preferred days"
-            return AssistantChatTurnDecision(
-                assistant_message=f"Thank you, but {matched_day.capitalize()} at {matched_time} falls outside the applicant's availability ({pref_days_str}). Are there any slots during their preferred window?",
-                conversation_status=ChatStatus.in_progress,
-                next_action="request_alternative_slot",
-            )
+        wanted = ", ".join(d.capitalize() for d in preferences.preferred_days) if preferences and preferences.preferred_days else "the applicant's availability"
+        return AssistantChatTurnDecision(
+            assistant_message=f"Thank you, but {day.capitalize()} at {slot_time} falls outside {wanted}. Is there another slot that fits?",
+            conversation_status=ChatStatus.in_progress,
+            next_action="request_alternative_slot",
+        )
 
-    # Default general enquiry reply
     return AssistantChatTurnDecision(
         assistant_message="Could you please verify if any document verification slots are available within our requested window?",
         conversation_status=ChatStatus.in_progress,
         next_action="continue_enquiry",
     )
+
+
+REWORD_PROMPT = """You reword one message from Unlocked's assistant to a (simulated) welfare office desk.
+Keep exactly the same meaning and every fact in it. Do not add facts, names, numbers, links, dates or times.
+Never mention the applicant's name, phone, email, Aadhaar, caste or income. Keep it polite and under 60 words.
+Return ONLY JSON: {"assistant_message": "..."}"""
+
+
+def _reworded(llm: Any, original: str, chat_id: str) -> str:
+    """Let the model only change the wording. Anything that adds a link or a figure the original didn't have is rejected."""
+    try:
+        out = call_llm_json(llm=llm, system=REWORD_PROMPT, user={"message": original}, task="office_chat_reword", ref=chat_id)
+        text = redact(str(out.get("assistant_message", "")).strip()) if isinstance(out, dict) else ""
+    except Exception as exc:  # noqa: BLE001 - any model failure keeps the deterministic wording
+        logger.warning("Rewording failed, keeping the original: %s", exc)
+        return original
+    if not 15 <= len(text) <= 600 or re.search(r"https?://|wa\.me|www\.", text, re.IGNORECASE):
+        return original
+    if set(re.findall(r"\d+", text)) - set(re.findall(r"\d+", original)):
+        return original
+    return text
 
 
 def decide_chat_turn(
@@ -410,89 +407,22 @@ def decide_chat_turn(
     history: List[OfficeChatMessage],
     representative_message: str,
     llm: Optional[Any] = None,
+    rep_result: Optional[Dict[str, Any]] = None,
 ) -> AssistantChatTurnDecision:
     """
-    Decide the Action Agent's next turn response using Gemini Flash LLM when available,
-    falling back reliably to deterministic heuristic reasoning.
+    The Action Agent's next turn. Python decides what happens (status, slot, contact, whether the applicant must
+    approve); a model, when one is passed in, may only reword the message. agent4 stays independent of member2: the
+    caller supplies the model client.
     """
-    # Attempt LLM completion if an LLM client is available or configured
-    if llm is None and (os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")):
-        try:
-            from member2.llm import default_client
-            llm = default_client()
-        except Exception:
-            llm = None
-
-    if llm is not None:
-        try:
-            # Build structured prompt context
-            history_summary = [
-                {"sender": m.sender, "text": redact(m.message_text), "turn_index": m.turn_index}
-                for m in history[-6:]  # Last 6 turns
-            ]
-            user_context = {
-                "scheme": {
-                    "id": scheme.id,
-                    "name": scheme.name,
-                    "department": scheme.department,
-                    "official_sources": scheme.official_sources,
-                },
-                "preferences": {
-                    "preferred_days": preferences.preferred_days if preferences else [],
-                    "preferred_windows": [w.model_dump(mode="json") if hasattr(w, "model_dump") else w for w in (preferences.preferred_windows if preferences else [])],
-                    "pre_authorized_confirmation": preferences.pre_authorized_confirmation if preferences else False,
-                },
-                "office": {
-                    "office_name": office.office_name if office else None,
-                    "office_hours": office.office_hours if office else None,
-                    "whatsapp_number": office.whatsapp_number if office else None,
-                },
-                "conversation_history": history_summary,
-                "latest_representative_message": redact(representative_message),
-            }
-
-            parsed_data = call_llm_json(
-                llm=llm,
-                system=SYSTEM_PROMPT,
-                user=user_context,
-                task="office_chat_turn",
-                ref=chat_session.chat_id,
-            )
-            if parsed_data and isinstance(parsed_data, dict) and "assistant_message" in parsed_data:
-                # Enforce Zero-PII sanitization on LLM response text
-                sanitized_msg = redact(parsed_data["assistant_message"])
-                apt_data = parsed_data.get("appointment_offer")
-                apt_offer = AppointmentOffer(**apt_data) if apt_data and isinstance(apt_data, dict) else None
-
-                handoff_data = parsed_data.get("contact_handoff")
-                handoff = ContactHandoff(**handoff_data) if handoff_data and isinstance(handoff_data, dict) else None
-
-                # Enforce pre-authorization rule in Python code
-                status = parsed_data.get("conversation_status", ChatStatus.in_progress.value)
-                if apt_offer and apt_offer.status == AppointmentStatus.simulated_confirmed:
-                    if preferences and not preferences.pre_authorized_confirmation:
-                        apt_offer.status = AppointmentStatus.awaiting_user_approval
-                        status = ChatStatus.awaiting_user_input.value
-
-                return AssistantChatTurnDecision(
-                    assistant_message=sanitized_msg,
-                    conversation_status=ChatStatus(status) if status in ChatStatus._value2member_map_ else ChatStatus.in_progress,
-                    next_action=parsed_data.get("next_action", "continue"),
-                    appointment_offer=apt_offer,
-                    unresolved_questions=parsed_data.get("unresolved_questions", []),
-                    contact_handoff=handoff,
-                    outcome=parsed_data.get("outcome"),
-                )
-        except Exception as exc:
-            logger.warning("LLM turn reasoning failed, using deterministic heuristic: %s", exc)
-
-    # Heuristic fallback (fast, deterministic, offline-capable)
-    return _decide_turn_heuristic(
+    decision = _decide_turn_heuristic(
         chat_session=chat_session,
         preferences=preferences,
         office=office,
         scheme=scheme,
         history=history,
         representative_message=representative_message,
+        rep_result=rep_result,
     )
-
+    if llm is not None:
+        decision.assistant_message = _reworded(llm, decision.assistant_message, chat_session.chat_id)
+    return decision

@@ -542,288 +542,84 @@ async def interactive_action_plan(session_id: str):
 # ---------------------------------------------------------------------------
 
 async def interactive_office_chat_simulation(session_id: str) -> None:
-    console.print("\n[bold green]══ IN-WEBSITE OFFICE CHAT SIMULATOR (WhatsApp-Style Demo) ══[/bold green]")
-    console.print("[yellow bold]⚠️  [SIMULATION DEMO ONLY] In-website simulation. Zero PII shared. No actual office contacted.[/yellow bold]\n")
+    """Drive the simulated office chat through the same endpoints the website uses, so the CLI can't drift from them."""
+    import httpx
+    from api.main import app as api_app
+
+    console.print("\n[bold green]══ IN-WEBSITE OFFICE CHAT SIMULATOR (WhatsApp-style demo) ══[/bold green]")
+    console.print("[yellow bold]⚠️  SIMULATION ONLY. No real office is contacted and no personal details are shared.[/yellow bold]\n")
 
     schemes = await get_session_schemes(session_id)
     if not schemes:
-        console.print("[yellow]No schemes available in session. Please run discovery first.[/yellow]")
+        console.print("[yellow]No schemes in this session yet. Run discovery first.[/yellow]")
         return
+    for idx, sch in enumerate(schemes, start=1):
+        console.print(f"  [{idx}] [bold]{sch.name}[/bold]")
+    target = schemes[IntPrompt.ask("Scheme", default=1, choices=[str(i) for i in range(1, len(schemes) + 1)]) - 1]
 
-    console.print("Select target scheme to enquire about:")
-    for idx, s in enumerate(schemes, start=1):
-        dept = getattr(s, "department", "Welfare Department") or "Welfare Department"
-        console.print(f"  [{idx}] [bold]{s.name}[/bold] ({dept})")
-    s_idx = IntPrompt.ask("Scheme", default=1, choices=[str(i) for i in range(1, len(schemes) + 1)])
-    target_scheme = schemes[s_idx - 1]
+    transport = httpx.ASGITransport(app=api_app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://office-chat") as client:
+        scenarios = {
+            "1": ("scenario_a_success", "A: office offers a slot and confirms"),
+            "2": ("scenario_b_no_availability", "B: no slots available"),
+            "3": ("scenario_c_missing_info", "C: office asks for details, shares a WhatsApp number"),
+            "4": ("scenario_d_unclear_unsupported", "D: office cannot handle this by chat"),
+        }
+        for key, (_, label) in scenarios.items():
+            console.print(f"  [bold cyan]{key}[/bold cyan]. {label}")
+        scenario_id = scenarios[Prompt.ask("Scenario", choices=list(scenarios), default="1")][0]
 
-    # Office details from scheme or database or fallback
-    office = getattr(target_scheme, "office_contact", None)
-    if not office:
-        office = await get_office_contact_by_scheme(target_scheme.id)
-    if not office:
-        office = OfficeContact(
-            office_name=f"{target_scheme.name} Helpdesk & Taluk Office",
-            physical_address="Taluk Office Complex, Mini Vidhana Soudha, Bengaluru, Karnataka 560001",
-            phone="+91-80-22221111",
-            whatsapp_number="+918022221111",
-            email="helpdesk.schemes@karnataka.gov.in",
-            office_hours={"monday": {"open": "10:00", "close": "17:30"}, "friday": {"open": "10:00", "close": "17:30"}},
-            contact_source=ContactSource.curated_directory,
-            verification_status=VerificationStatus.verified,
-        )
+        days_raw = Prompt.ask("Days you can attend (comma separated, blank = any day)", default="")
+        days = [d.strip().lower() for d in days_raw.split(",") if d.strip()]
+        pre_auth = Confirm.ask("Let Unlocked confirm a slot that matches those days without asking you?", default=False)
 
-    # Display Office Card
-    console.print(Panel(
-        f"[bold cyan]Office:[/bold cyan] {office.office_name}\n"
-        f"[bold cyan]Address:[/bold cyan] {office.physical_address or 'Taluk Administrative Office'}\n"
-        f"[bold cyan]Phone:[/bold cyan] {office.phone or 'Not listed'}\n"
-        f"[bold cyan]WhatsApp Desk:[/bold cyan] {office.whatsapp_number or 'Not listed'}\n"
-        f"[bold cyan]Working Hours:[/bold cyan] Mon-Fri 10:00 - 17:30 IST",
-        title=f"🏛️ {target_scheme.name} — Official Office Contact",
-        border_style="cyan",
-        box=box.ROUNDED,
-    ))
+        res = await client.post(f"/api/sessions/{session_id}/office-chats", json={
+            "scheme_id": target.id, "scenario_id": scenario_id,
+            "preferred_days": days, "pre_authorized_confirmation": pre_auth,
+        })
+        if res.status_code != 201:
+            console.print(f"[red]Could not start the chat: {res.text}[/red]")
+            return
+        view = res.json()
+        chat_id = view["chat_id"]
+        shown = 0
 
-    # Scenario Selection
-    console.print("\n[bold]Select Simulation Scenario:[/bold]")
-    console.print("  [bold cyan]1[/bold cyan]. Scenario A: Standard Slot Booking (Representative offers in-range slot ➔ Confirmed)")
-    console.print("  [bold cyan]2[/bold cyan]. Scenario B: No Availability in Requested Window (Representative offers alternate slot)")
-    console.print("  [bold cyan]3[/bold cyan]. Scenario C: Missing Info / Clarification (Representative asks info ➔ WhatsApp handoff)")
-    console.print("  [bold cyan]4[/bold cyan]. Scenario D: Unsupported Channel (Office does not process chat appointments)")
+        def show(v: dict) -> None:
+            nonlocal shown
+            for m in v["messages"][shown:]:
+                who = "[cyan]Unlocked[/cyan]" if m["sender"] == "unlocked" else "[green]Office (simulated)[/green]"
+                console.print(f"{who}: {m['message_text']}")
+            shown = len(v["messages"])
 
-    sc_choice = Prompt.ask("Scenario", choices=["1", "2", "3", "4"], default="1")
-    sc_map = {
-        "1": "scenario_a_success",
-        "2": "scenario_b_no_slots",
-        "3": "scenario_c_clarification",
-        "4": "scenario_d_unclear_unsupported",
-    }
-    scenario_id = sc_map[sc_choice]
+        show(view)
+        for _ in range(8):
+            res = await client.post(f"/api/office-chats/{chat_id}/advance")
+            if res.status_code == 409:
+                # an offered slot needs the applicant's decision before the chat can go on
+                approve = Confirm.ask("The office offered a slot. Approve it?", default=True)
+                res = await client.post(f"/api/office-chats/{chat_id}/user-input", json={"action": "approve_slot", "user_approved_slot": approve})
+            if res.status_code not in (200, 201):
+                console.print(f"[red]{res.text}[/red]")
+                break
+            view = res.json()
+            show(view)
+            if view["appointment_status"] == "awaiting_user_approval":
+                approve = Confirm.ask("The office offered a slot. Approve it?", default=True)
+                res = await client.post(f"/api/office-chats/{chat_id}/user-input", json={"action": "approve_slot", "user_approved_slot": approve})
+                view = res.json()
+                show(view)
+            if view["chat_status"] in ("completed", "no_availability", "unable_to_resolve", "cancelled", "manual_followup_required") or view["unresolved_questions"]:
+                break
 
-    pre_auth = Confirm.ask("Enable pre-authorized auto-confirmation (instantly accept slots matching preferences)?", default=True)
+        outcome = (await client.get(f"/api/office-chats/{chat_id}/outcome")).json()
+        console.print(Panel(outcome["summary"] + "\n" + "\n".join(f"- {n}" for n in outcome["next_steps"]), title="Outcome (simulated)", border_style="green"))
+        for uq in outcome["unresolved_questions"]:
+            console.print(f"[yellow]Open question:[/yellow] {uq['question_text']}")
+            if uq.get("click_to_chat_url"):
+                console.print(f"  WhatsApp link (number given by the office): {uq['click_to_chat_url']}")
+        if outcome.get("calendar_ics"):
+            console.print("[green]A calendar file is available from /api/office-chats/%s/calendar/download[/green]" % chat_id)
 
-    prefs = UserAppointmentPreferences(
-        preferred_days=["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
-        preferred_windows=[TimeWindow(start="10:00", end="13:00"), TimeWindow(start="14:00", end="17:00")],
-        notes="Citizen prefers morning appointment for document verification",
-        pre_authorized_confirmation=pre_auth,
-    )
-    await save_appointment_preferences(session_id, prefs)
-
-    chat_id = f"sim_{uuid.uuid4().hex[:8]}"
-    chat_session = OfficeChatSession(
-        chat_id=chat_id,
-        session_id=session_id,
-        scheme_id=target_scheme.id,
-        office_id=office.office_id if office else None,
-        scenario_id=scenario_id,
-        chat_status=ChatStatus.active,
-        appointment_status=AppointmentStatus.requested,
-        preferences=prefs,
-    )
-    await create_office_chat_session(chat_session)
-
-    # Turn 1: Initial Advocate Message
-    initial_text = build_initial_office_enquiry(
-        scheme_name=target_scheme.name,
-        office_name=office.office_name,
-        user_preferences=prefs,
-    )
-    m1 = OfficeChatMessage(
-        chat_id=chat_id,
-        sender="unlocked",
-        message_text=initial_text,
-        turn_index=1,
-    )
-    await add_office_chat_message(m1)
-
-    console.print("\n" + "─"*65)
-    console.print(f"[bold green]💬 WhatsApp Simulator Active • Scheme: {target_scheme.name}[/bold green]")
-    console.print("[dim]Simulation Demo Only • Zero-PII Boundary • No Actual Office Contacted[/dim]")
-    console.print("─"*65 + "\n")
-
-    console.print(Panel(
-        f"{m1.message_text}\n\n[dim]10:00 AM • Sent by Unlocked Citizen Advocate • Zero-PII Enforced[/dim]",
-        title="[bold green]📱 Unlocked Citizen Advocate[/bold green]",
-        border_style="green",
-        box=box.ROUNDED,
-    ))
-
-    # Turn 2: Representative reply
-    sim_service = OfficeSimulatorService()
-    turn_2_res = sim_service.process_turn(
-        scenario_id=scenario_id,
-        turn_index=2,
-        assistant_message=m1.message_text,
-        preferences=prefs,
-        office=office,
-    )
-    m2 = OfficeChatMessage(
-        chat_id=chat_id,
-        sender="representative",
-        message_text=turn_2_res.message,
-        turn_index=2,
-    )
-    await add_office_chat_message(m2)
-
-    console.print(Panel(
-        f"{m2.message_text}\n\n[dim]10:01 AM • Received from {office.office_name}[/dim]",
-        title=f"[bold blue]🏛️ {office.office_name}[/bold blue]",
-        border_style="blue",
-        box=box.ROUNDED,
-    ))
-
-    # Turn 3: Assistant / Citizen Advocate decision
-    history = [m1, m2]
-    asst_turn_3 = await decide_chat_turn(
-        chat_history=history,
-        preferences=prefs,
-        scheme=target_scheme,
-        office=office,
-        representative_slot=turn_2_res.offered_slot,
-        scenario_id=scenario_id,
-    )
-
-    user_approved_slot = None
-    if asst_turn_3.appointment_offer:
-        offered = asst_turn_3.appointment_offer
-        if not prefs.pre_authorized_confirmation:
-            console.print(Panel(
-                f"[bold yellow]Proposed Appointment Slot:[/bold yellow]\n"
-                f"  📅 Date: {offered.date}\n"
-                f"  ⏰ Time: {offered.time}\n"
-                f"  📍 Location: {offered.location or office.physical_address}\n\n"
-                f"[italic]Pre-authorization is OFF. Review and confirm before scheduling.[/italic]",
-                title="⚠️ Citizen Approval Required",
-                border_style="yellow",
-                box=box.ROUNDED,
-            ))
-            approved = Confirm.ask("Do you want to accept and confirm this simulated slot?", default=True)
-            if approved:
-                user_approved_slot = offered
-                asst_turn_3.appointment_status = AppointmentStatus.simulated_confirmed
-                asst_turn_3.reply_message = (
-                    f"Thank you. The citizen confirms the appointment on {offered.date} at {offered.time}. "
-                    "We will arrive with all required documents."
-                )
-            else:
-                asst_turn_3.appointment_status = AppointmentStatus.offered
-                asst_turn_3.reply_message = (
-                    "Thank you. The citizen cannot make that timing. Could you please propose another date next week?"
-                )
-
-    m3 = OfficeChatMessage(
-        chat_id=chat_id,
-        sender="unlocked",
-        message_text=asst_turn_3.reply_message,
-        turn_index=3,
-    )
-    await add_office_chat_message(m3)
-
-    console.print(Panel(
-        f"{m3.message_text}\n\n[dim]10:02 AM • Sent by Unlocked Citizen Advocate[/dim]",
-        title="[bold green]📱 Unlocked Citizen Advocate[/bold green]",
-        border_style="green",
-        box=box.ROUNDED,
-    ))
-
-    # Turn 4: Representative concluding reply
-    turn_4_res = sim_service.process_turn(
-        scenario_id=scenario_id,
-        turn_index=4,
-        assistant_message=m3.message_text,
-        preferences=prefs,
-        office=office,
-    )
-    m4 = OfficeChatMessage(
-        chat_id=chat_id,
-        sender="representative",
-        message_text=turn_4_res.message,
-        turn_index=4,
-    )
-    await add_office_chat_message(m4)
-
-    console.print(Panel(
-        f"{m4.message_text}\n\n[dim]10:03 AM • Received from {office.office_name}[/dim]",
-        title=f"[bold blue]🏛️ {office.office_name}[/bold blue]",
-        border_style="blue",
-        box=box.ROUNDED,
-    ))
-
-    # Conclude session and update records
-    chat_session.chat_status = ChatStatus.completed
-    if asst_turn_3.appointment_offer and (prefs.pre_authorized_confirmation or user_approved_slot):
-        chat_session.appointment_status = AppointmentStatus.simulated_confirmed
-        chat_session.appointment = asst_turn_3.appointment_offer
-    elif scenario_id == "scenario_b_no_slots":
-        chat_session.appointment_status = AppointmentStatus.no_availability
-    elif scenario_id == "scenario_d_unclear_unsupported":
-        chat_session.chat_status = ChatStatus.unable_to_resolve
-        chat_session.appointment_status = AppointmentStatus.not_requested
-    await update_office_chat_session(chat_session)
-
-    # Unresolved question handling (Scenario C)
-    if asst_turn_3.unresolved_question or turn_2_res.receiver_whatsapp_number or turn_2_res.requested_info:
-        q_text = asst_turn_3.unresolved_question or turn_2_res.requested_info or "Clarification required on supporting documents"
-        wa_target = turn_2_res.receiver_whatsapp_number or office.whatsapp_number or "+918022221111"
-        draft = f"Namaskara, regarding {target_scheme.name}: I need clarification on {q_text}."
-        click_url = format_whatsapp_click_url(wa_target, draft)
-
-        uq = UnresolvedQuestion(
-            session_id=session_id,
-            chat_id=chat_id,
-            scheme_id=target_scheme.id,
-            question_text=q_text,
-            status=UnresolvedQuestionStatus.draft_prepared,
-            receiver_whatsapp_number=wa_target,
-            draft_message=draft,
-            click_to_chat_url=click_url,
-        )
-        await create_unresolved_question(uq)
-
-        console.print(Panel(
-            f"[bold yellow]Unresolved Question Logged for Citizen Follow-up:[/bold yellow]\n\n"
-            f"[bold cyan]Missing Information:[/bold cyan] {q_text}\n"
-            f"[bold cyan]Representative WhatsApp Desk:[/bold cyan] {wa_target}\n"
-            f"[bold cyan]Prepared Follow-Up Draft Message:[/bold cyan]\n  \"{draft}\"\n\n"
-            f"[bold green]Click-to-Chat Direct URL:[/bold green]\n  {click_url}\n\n"
-            f"[dim]The citizen can review and tap this URL to launch WhatsApp with the pre-filled message.[/dim]",
-            title="📋 WhatsApp Direct Follow-Up Handoff Prepared",
-            border_style="yellow",
-            box=box.ROUNDED,
-        ))
-
-    # Confirmed Appointment -> ICS calendar download
-    if chat_session.appointment_status == AppointmentStatus.simulated_confirmed and chat_session.appointment:
-        ics_text = _generate_simulated_ics(target_scheme, chat_session.appointment)
-        if ics_text:
-            chat_session.appointment.calendar_ics = ics_text
-            await update_office_chat_session(chat_session)
-
-            console.print(Panel(
-                f"[bold green]✓ Simulated In-Person Appointment Confirmed![/bold green]\n\n"
-                f"  📅 Date: {chat_session.appointment.date}\n"
-                f"  ⏰ Time: {chat_session.appointment.time}\n"
-                f"  📍 Location: {chat_session.appointment.location or office.physical_address}\n"
-                f"  🏷️ Watermark: [SIMULATION DEMO ONLY]\n\n"
-                f"[dim]RFC 5545 .ics Calendar File Ready for Download.[/dim]",
-                title="🗓️ Calendar Event Generated",
-                border_style="green",
-                box=box.ROUNDED,
-            ))
-
-            if Confirm.ask("Save simulated calendar invite (.ics) to disk?", default=True):
-                ics_path = PROJECT_ROOT / f"simulated_appointment_{chat_id}.ics"
-                ics_path.write_text(ics_text, encoding="utf-8")
-                console.print(f"[green]✓ Saved invite to {ics_path}![/green]")
-
-    console.print(f"\n[bold green]✓ Simulation completed (Session: {session_id}, Chat: {chat_id})[/bold green]\n")
-
-
-# ---------------------------------------------------------------------------
-# Step 5: Action & Follow-Through Studio (Agent 4)
-# ---------------------------------------------------------------------------
 
 async def interactive_action_studio(session_id: str):
     console.print("\n[bold cyan]══ STEP 5: Action & Follow-Through Studio (Agent 4) ══[/bold cyan]")

@@ -92,13 +92,14 @@ def test_scenario_a_offer_and_confirmation_with_pre_authorization(mock_scheme, m
         history=[],
         representative_message=rep_msg_turn2,
         llm=None,
+        rep_result={"offered_slot": {"date": "2026-11-02", "day": "monday", "time": "11:00"}},
     )
 
     assert decision2.conversation_status == ChatStatus.appointment_offered
     assert decision2.next_action == "request_explicit_confirmation"
     assert decision2.appointment_offer is not None
     assert decision2.appointment_offer.date == "2026-11-02"
-    assert decision2.appointment_offer.time == "11:00 AM"
+    assert decision2.appointment_offer.time == "11:00"
     assert "confirm" in decision2.assistant_message.lower()
 
     # Turn 4: Representative explicitly confirms
