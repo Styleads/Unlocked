@@ -15,7 +15,7 @@ from typing import Any, Iterable, Optional
 from pydantic import BaseModel, ValidationError
 
 from .assess import SchemeInput, _as_scheme
-from .attributes import ATTRIBUTES, AttributeSpec, is_canonical, normalize_text, resolve_attribute
+from .attributes import ATTRIBUTES, AttributeSpec, detect_state_in_text, is_canonical, normalize_text, resolve_attribute
 from .llm import LLMClient
 from .models import InputType, Operator, Requirement, RequirementVerification, RuleCondition, SchemeRecord
 
@@ -287,6 +287,13 @@ def _canonical_rule(attribute: Optional[str], operator: Optional[str], value: An
     val_str = str(value or "").strip().lower()
     slug_str = str(fallback_slug or "").strip().lower()
     attr_str = str(attribute or "").strip().lower()
+
+    # Check for geographical state conditions
+    detected_state = detect_state_in_text(f"{attr_str} {slug_str} {val_str}")
+    if detected_state:
+        if detected_state == "Karnataka":
+            return "domicile_karnataka", Operator.is_true, None
+        return "state", Operator.eq, detected_state
 
     if attr_str in ("karnataka", "domicile_karnataka") or val_str in ("karnataka", "in karnataka") or slug_str in ("karnataka", "in_karnataka", "state_of_karnataka"):
         return "domicile_karnataka", Operator.is_true, None

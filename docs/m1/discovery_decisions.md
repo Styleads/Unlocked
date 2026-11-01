@@ -226,6 +226,16 @@ Do not silently change previous decisions.
 
 If a decision is superseded, preserve its history and document the replacement.
 
+## 10. Geographical Awareness, Open Domain Search, and Resilient Extraction Decisions (2026-11-01)
+
+- **Open Search Domain Expansion:** Removed the 16-domain Tavily restriction to avoid hiding valid schemes. Sources are categorized as official government (`.gov.in`, `.nic.in`) vs unofficial, marking non-official evidence as `uncertain`.
+- **Balanced Central/State Query Generation:** The query planner produces 3-4 Central/National queries without district pinning alongside 3-4 State queries. Central schemes apply pan-India to Karnataka citizens.
+- **Geographical State Condition Mapping:** Mentions of other states are normalized to `attribute="state", operator=Operator.eq, value="<State>"`. Other-state requirements are automatically evaluated as `not_satisfied` for Karnataka residents, and other-state questions are suppressed.
+- **Tolerant Scheme Salvaging:** Schemes with incomplete or malformed sub-items (e.g. Vidyasiri) are repaired item-by-item instead of discarding the entire scheme.
+- **Deadline Date Checking:** Deadlines are evaluated against today's date (`2026-11-01`); expired deadlines are marked `deadline_status="expired"`. Deadlines require official source backing.
+- **Document Mandatory Flag Tracking:** `mandatory: bool` is extracted and preserved through to Agent 3's DAG action plan.
+- **Discovery Funnel Diagnostics:** The pipeline exposes search, extraction, validation, and claim verification counts.
+
 ---
 
 **Core principle: Build modularly, protect working components, document decisions, and integrate only through agreed interfaces.**

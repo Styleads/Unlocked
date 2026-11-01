@@ -34,7 +34,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 load_dotenv(PROJECT_ROOT / ".env", override=False)
 
-from api.database import create_session, get_session, init_db
+from api.database import create_session, get_session, init_db, get_call_session
 from api.orchestrator import (
     analyze_scheme_rejection,
     generate_action_plan,
@@ -54,6 +54,8 @@ from api.schemas import (
     SessionEmailActionRequest,
     SessionRejectionActionRequest,
 )
+from api.call_simulator import CallSimulatorService
+from agent4.call_models import UserAppointmentPreferences
 
 console = Console()
 
@@ -231,19 +233,43 @@ async def execute_discovery(session_id: str) -> list[Any]:
     schemes = await get_session_schemes(session_id)
     console.print(f"\n[green]✓ Discovery complete![/green] Found [bold]{len(schemes)}[/bold] schemes (Source Mode: [bold cyan]{result.source_mode}[/bold cyan]):\n")
 
+    if result.diagnostics:
+        diag = result.diagnostics
+        diag_lines = [
+            f"• Search Queries Generated: [bold]{diag.get('search_queries_count', 0)}[/bold]",
+            f"• Search Results Retrieved: [bold]{diag.get('search_results_retrieved', 0)}[/bold] (Unique: [bold]{diag.get('unique_results_count', 0)}[/bold])",
+            f"• Schemes Extracted: [bold]{diag.get('schemes_extracted_count', 0)}[/bold]",
+            f"• Validation Failures: [bold]{diag.get('schemes_validation_failed_count', 0)}[/bold]",
+            f"• Duplicates Removed: [bold]{diag.get('schemes_duplicates_removed_count', 0)}[/bold]",
+            f"• Claims Verified: [bold green]{diag.get('claims_verified_count', 0)}[/bold green]",
+            f"• Final Schemes Available: [bold cyan]{diag.get('final_schemes_count', len(schemes))}[/bold cyan]",
+        ]
+        console.print(Panel(
+            "\n".join(diag_lines),
+            title="[bold cyan]Discovery Pipeline Diagnostics[/bold cyan]",
+            box=box.ROUNDED,
+            border_style="cyan"
+        ))
+        console.print()
+
     table = Table(box=box.ROUNDED, expand=True)
     table.add_column("#", justify="center", width=4)
     table.add_column("Scheme Title", style="bold white", width=34)
     table.add_column("Department / Level", style="dim", width=22)
     table.add_column("Initial Status", width=20)
-    table.add_column("Deadline", width=14)
+    table.add_column("Deadline", width=18)
     table.add_column("Benefit", width=30)
 
     for idx, s in enumerate(schemes, start=1):
         status_disp = format_status(s.assessment_status)
         dept = s.department or s.government_level or "Karnataka"
         benefit = str(s.benefit or "Official welfare benefit")
-        deadline_disp = f"[bold yellow]{s.deadline}[/bold yellow]" if s.deadline else "[dim]Not published[/dim]"
+        if getattr(s, "deadline_status", "") == "expired":
+            deadline_disp = f"[bold red]EXPIRED ({s.deadline})[/bold red]"
+        elif s.deadline:
+            deadline_disp = f"[bold yellow]{s.deadline}[/bold yellow]"
+        else:
+            deadline_disp = "[dim]Not published[/dim]"
         table.add_row(str(idx), s.name, dept, status_disp, deadline_disp, benefit)
 
     console.print(table)
@@ -488,9 +514,10 @@ async def interactive_action_studio(session_id: str):
         console.print("  [bold cyan]2[/bold cyan]. Generate RFC 5545 Calendar .ics File (Application Deadline or In-Person Appointment)")
         console.print("  [bold cyan]3[/bold cyan]. Record Application Progress & Contradiction Detection")
         console.print("  [bold cyan]4[/bold cyan]. Analyze Scheme Rejection Notice (Redaction + Official Guidance Next Steps)")
-        console.print("  [bold cyan]5[/bold cyan]. Exit Interactive Test Interface")
+        console.print("  [bold cyan]5[/bold cyan]. In-Browser AI Appointment Call Simulation (Turn-based HTTP, Zero-PII, Slot Booking)")
+        console.print("  [bold cyan]6[/bold cyan]. Exit Interactive Test Interface")
 
-        choice = Prompt.ask("Select action", choices=["1", "2", "3", "4", "5"], default="1")
+        choice = Prompt.ask("Select action", choices=["1", "2", "3", "4", "5", "6"], default="1")
 
         if choice == "1":
             # Email draft
@@ -660,6 +687,9 @@ async def interactive_action_studio(session_id: str):
             ))
 
         elif choice == "5":
+            await interactive_call_simulation(session_id)
+
+        elif choice == "6":
             console.print("\n[bold cyan]Thank you for testing Project Unlocked! Exiting interface.[/bold cyan]")
             break
 
@@ -678,10 +708,11 @@ async def main():
     console.print("  [bold cyan]3[/bold cyan]. Test Agent 2: Consolidated Questionnaire & Dynamic Reassessment")
     console.print("  [bold cyan]4[/bold cyan]. Test Agent 3: Document Planning DAG & Topological Sorting")
     console.print("  [bold cyan]5[/bold cyan]. Test Agent 4: Action Studio (Emails, Calendars, Progress, Rejection)")
-    console.print("  [bold cyan]6[/bold cyan]. Exit")
+    console.print("  [bold cyan]6[/bold cyan]. Test Agent 4 Feature: In-Browser AI Appointment Call Simulation")
+    console.print("  [bold cyan]7[/bold cyan]. Exit")
 
-    mode = Prompt.ask("\nEnter choice", choices=["1", "2", "3", "4", "5", "6"], default="1")
-    if mode == "6":
+    mode = Prompt.ask("\nEnter choice", choices=["1", "2", "3", "4", "5", "6", "7"], default="1")
+    if mode == "7":
         console.print("[cyan]Exiting interface.[/cyan]")
         return
 
@@ -735,6 +766,12 @@ async def main():
         schemes = await execute_discovery(session_id)
         if schemes:
             await interactive_action_studio(session_id)
+
+    elif mode == "6":
+        # Call Simulation
+        schemes = await execute_discovery(session_id)
+        if schemes:
+            await interactive_call_simulation(session_id)
 
 
 if __name__ == "__main__":

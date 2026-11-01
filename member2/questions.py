@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping, Optional, Union
 
 from .assess import AnswersInput, SchemeInput, _as_scheme, as_answer_map, assess_scheme, contradictory_requirement_ids
-from .attributes import ATTRIBUTES, AttributeSpec, condition_spec, is_canonical, is_condition
+from .attributes import ATTRIBUTES, AttributeSpec, condition_spec, detect_state_in_text, is_canonical, is_condition
 from .comparators import NOT_SURE_VALUES
 from .models import (
     Answer,
@@ -184,7 +184,8 @@ def generate_consolidated_questions(
     if is_kar:
         candidates = {
             a: u for a, u in candidates.items()
-            if a not in ("state", "domicile_karnataka") and not (a.startswith("unmapped:") and "karnataka" in a.lower())
+            if a not in ("state", "domicile_karnataka")
+            and not (a.startswith("unmapped:") and ("karnataka" in a.lower() or bool(detect_state_in_text(f"{a} {u.text}"))))
         }
 
     picked = _rank(candidates)[: max(batch_size, 0)]
@@ -203,8 +204,18 @@ def generate_scheme_questions(
     history = _history(question_history)
     usage = _useful_usage([_as_scheme(scheme)], answers)
 
+    is_kar = (
+        answers.get("domicile_karnataka", Answer(attribute="", state=AnswerState.unanswered)).value is True
+        or str(answers.get("state", Answer(attribute="", state=AnswerState.unanswered)).value or "").lower() == "karnataka"
+    )
+
     questions = []
     for a in _rank(usage):
+        if is_kar and (
+            a in ("state", "domicile_karnataka")
+            or (a.startswith("unmapped:") and ("karnataka" in a.lower() or bool(detect_state_in_text(f"{a} {usage[a].text}"))))
+        ):
+            continue
         state = answers[a].state if a in answers else AnswerState.unanswered
         if state == AnswerState.unanswered:
             state = history.get(question_id(a), AnswerState.unanswered)

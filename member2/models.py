@@ -62,7 +62,16 @@ class Requirement(BaseModel):
     @classmethod
     def _accept_scheme_vocabulary(cls, v: Any) -> Any:
         # Members 1/3 may reuse the scheme-level word; it means the same thing here.
-        return RequirementVerification.unverified if v == "not_verified" else v
+        if isinstance(v, str):
+            val = v.strip().lower()
+            if val in ("not_verified", "unverified"):
+                return RequirementVerification.unverified
+            if "partial" in val or "uncert" in val:
+                return RequirementVerification.uncertain
+            if val == "verified":
+                return RequirementVerification.verified
+            return RequirementVerification.unverified
+        return v
 
 
 class DocumentDependency(BaseModel):
@@ -73,6 +82,7 @@ class DocumentDependency(BaseModel):
 
 class DocumentRequirement(BaseModel):
     name: str  # raw name as found
+    mandatory: bool = True
     source_url: Optional[str] = None
     evidence: Optional[str] = None
     dependencies: list[DocumentDependency] = Field(default_factory=list)
@@ -101,6 +111,7 @@ class SchemeRecord(BaseModel):
     application_steps: list[str] = Field(default_factory=list)
     application_url: Optional[str] = None
     deadline: Optional[str] = None  # ISO date, only if verified
+    deadline_status: Optional[str] = None
     deadline_source_url: Optional[str] = None
     official_sources: list[str] = Field(default_factory=list)
     verification_status: VerificationStatus = VerificationStatus.not_verified
@@ -119,7 +130,16 @@ class SchemeRecord(BaseModel):
     @field_validator("verification_status", mode="before")
     @classmethod
     def _accept_requirement_vocabulary(cls, v: Any) -> Any:
-        return VerificationStatus.not_verified if v == "unverified" else v
+        if isinstance(v, str):
+            val = v.strip().lower()
+            if val in ("unverified", "not_verified"):
+                return VerificationStatus.not_verified
+            if "partial" in val or "uncert" in val:
+                return VerificationStatus.uncertain
+            if val == "verified":
+                return VerificationStatus.verified
+            return VerificationStatus.not_verified
+        return v
 
 
 class AnswerState(str, Enum):
@@ -226,6 +246,7 @@ class ChecklistItem(BaseModel):
     name: str
     status: DocStatus
     order: int  # 1-based position in the plan
+    mandatory: bool = True
     required_by_scheme_ids: list[str] = Field(default_factory=list)
     dependencies: list[str] = Field(default_factory=list)  # document ids (plan §5.4)
     source_urls: list[str] = Field(default_factory=list)

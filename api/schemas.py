@@ -305,6 +305,7 @@ class SchemeView(BaseModel):
     application_steps: list[str] = Field(default_factory=list)
     application_url: Optional[str] = None
     deadline: Optional[str] = None
+    deadline_status: Optional[str] = None
     deadline_source_url: Optional[str] = None
     official_sources: list[str] = Field(default_factory=list)
     source_type: str = "live_search"
@@ -327,6 +328,7 @@ class DiscoveryResult(BaseModel):
     preferred_language: str = "en"
     translation_status: str = "not_requested"
     warnings: list[str] = Field(default_factory=list)
+    diagnostics: dict[str, int] = Field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------

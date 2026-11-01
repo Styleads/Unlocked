@@ -7,7 +7,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping, Optional, Union
 
-from .attributes import ATTRIBUTES, is_canonical, is_condition
+from .attributes import ATTRIBUTES, detect_state_in_text, is_canonical, is_condition
 from .comparators import evaluate
 from .models import (
     Answer,
@@ -40,6 +40,14 @@ def as_answer_map(user_answers: AnswersInput) -> dict[str, Answer]:
     for a in items:
         answer = a if isinstance(a, Answer) else Answer.model_validate(a)
         out[answer.attribute] = answer
+    # Bi-directional inference between state == 'Karnataka' and domicile_karnataka
+    if "state" in out and out["state"].state == AnswerState.answered:
+        st_val = str(out["state"].value or "").strip().lower()
+        if st_val == "karnataka" and "domicile_karnataka" not in out:
+            out["domicile_karnataka"] = Answer(attribute="domicile_karnataka", state=AnswerState.answered, value=True)
+    elif "domicile_karnataka" in out and out["domicile_karnataka"].state == AnswerState.answered:
+        if out["domicile_karnataka"].value is True and "state" not in out:
+            out["state"] = Answer(attribute="state", state=AnswerState.answered, value="Karnataka")
     return out
 
 
@@ -91,7 +99,14 @@ def assess_requirement(req: Requirement, user_answers: AnswersInput = None) -> R
                 answers.get("domicile_karnataka", Answer(attribute="", state=AnswerState.unanswered)).value is True
                 or str(answers.get("state", Answer(attribute="", state=AnswerState.unanswered)).value or "").lower() == "karnataka"
             )
-            if "karnataka" in req.attribute.lower() and is_kar_user:
+            detected_state = detect_state_in_text(f"{req.attribute} {req.criterion or ''}")
+            if detected_state:
+                if detected_state.lower() == "karnataka":
+                    if is_kar_user:
+                        return _result(req, RequirementStatus.satisfied, "You are confirmed to be a resident of Karnataka.")
+                elif is_kar_user:
+                    return _result(req, RequirementStatus.not_satisfied, f"This condition requires residency in {detected_state}, but your profile indicates Karnataka.")
+            elif "karnataka" in req.attribute.lower() and is_kar_user:
                 return _result(req, RequirementStatus.satisfied, "You are confirmed to be a resident of Karnataka.")
 
             own = answers.get(req.attribute)
