@@ -5,15 +5,23 @@ Takes search results and uses Gemini to extract structured
 government scheme records with evidence-based verification.
 """
 
+import copy
 from datetime import datetime, timezone
 import json
 import logging
 import re
 import time
+from typing import Optional
 
 from pydantic import ValidationError
 
-from discovery_agent.scheme_schema import SchemeRecord
+from discovery_agent.scheme_schema import (
+    SchemeClaim,
+    SchemeCriterion,
+    SchemeDocument,
+    SchemeRecord,
+    SourceEvidence,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +49,8 @@ RULES:
 11. For every eligibility criterion and every required document, copy into
     "evidence" the exact sentence from that source_url's content that states it,
     character for character. Do not paraphrase. Use "" if no sentence states it.
+12. Central Government / National schemes are applicable to citizens residing in Karnataka and across India by default, unless the source text explicitly restricts the scheme to a specific outside state or region (e.g., North-Eastern States, Ladakh).
+13. Both official government portals (*.gov.in, *.nic.in) and public web sources may be present in search results. Extract relevant schemes and exact quotations from whichever source mentions them.
 
 Extract important factual claims separately.
 
@@ -71,7 +81,7 @@ Use this verification label:
 - unverified
 
 Government level labels:
-- central (national/central government schemes)
+- central (national/central government schemes — applicable nationwide including Karnataka)
 - state (state government schemes)
 - local (district/city/panchayat level schemes)
 - unknown (when not determinable)
@@ -106,6 +116,8 @@ Return JSON only:
       "application_process": null,
       "application_url": null,
       "official_url": null,
+      "deadline": null,
+      "deadline_source_url": null,
       "government_level": "unknown",
       "department": null,
       "source_evidence": [
@@ -273,7 +285,10 @@ def normalize_quote(value):
     if not isinstance(value, str):
         return ""
 
-    return " ".join(value.split()).casefold()
+    val = value.replace("\u201c", '"').replace("\u201d", '"')
+    val = val.replace("\u2018", "'").replace("\u2019", "'")
+    val = val.replace("\xa0", " ").replace("—", "-").replace("–", "-")
+    return " ".join(val.split()).casefold()
 
 
 def normalize_text(value):
@@ -292,13 +307,26 @@ def normalize_text(value):
 MIN_QUOTE_CHARS = 15
 
 
+def _find_official_source(source_url, official_sources):
+    """Find source entry handling trailing slashes and case differences."""
+    if not isinstance(source_url, str) or not official_sources:
+        return None
+    if source_url in official_sources:
+        return official_sources[source_url]
+    s_norm = source_url.rstrip("/").lower()
+    for u, data in official_sources.items():
+        if isinstance(u, str) and u.rstrip("/").lower() == s_norm:
+            return data
+    return None
+
+
 def verbatim_evidence(evidence, source_url, official_sources):
     """Return the model's quote only if it appears word for word in the full
     content of the page it cites; otherwise None. Deterministic: the model
     proposes the quote, Python decides whether it is real."""
     if not isinstance(evidence, str) or len(evidence.strip()) < MIN_QUOTE_CHARS:
         return None
-    source = official_sources.get(source_url) if isinstance(source_url, str) else None
+    source = _find_official_source(source_url, official_sources)
     if not source:
         return None
     if normalize_quote(evidence) not in normalize_quote(source.get("content", "")):
@@ -628,22 +656,192 @@ def calculate_verification_status(claims, verified_claims):
     if not claims or not verified_claims:
         return "unverified"
 
-    verified_count = len(verified_claims)
-
-    if verified_count == 0:
-        return "unverified"
+    verified_count = sum(1 for c in claims if c.get("verification_status") == "verified")
+    uncertain_count = sum(1 for c in claims if c.get("verification_status") == "uncertain")
 
     if verified_count == len(claims):
         return "verified"
 
-    return "partially_verified"
+    if verified_count > 0:
+        return "partially_verified"
+
+    if uncertain_count > 0:
+        return "uncertain"
+
+    return "unverified"
+
+
+OTHER_STATE_DOMAINS = (
+    "haryana.gov.in", "punjab.gov.in", "up.gov.in", "bihar.gov.in",
+    "delhi.gov.in", "rajasthan.gov.in", "mp.gov.in", "wb.gov.in",
+    "tn.gov.in", "ap.gov.in", "telangana.gov.in", "kerala.gov.in",
+    "maharashtra.gov.in", "gujarat.gov.in", "odisha.gov.in",
+    "assam.gov.in", "jharkhand.gov.in", "chhattisgarh.gov.in",
+    "uttarakhand.gov.in", "hp.gov.in", "goa.gov.in"
+)
+
+
+def can_verify_for_state(url: Optional[str], is_official: bool, target_state: str = "karnataka") -> bool:
+    """Check if a source can independently verify eligibility for the target state.
+    Only official portals (Central or target state) can establish eligibility.
+    Private websites and other states' portals cannot.
+    """
+    if not url or not is_official:
+        return False
+    from urllib.parse import urlparse
+    domain = urlparse(url).netloc.lower()
+    ts = (target_state or "karnataka").lower().strip()
+    # Check if domain belongs to another state
+    for st in OTHER_STATE_DOMAINS:
+        if ts not in st and (domain.endswith(st) or f".{st}" in domain):
+            return False
+    # Must be official (.gov.in or .nic.in)
+    return domain.endswith(".gov.in") or domain.endswith(".nic.in") or domain.endswith(".edu.in")
+
+
+def check_deadline(
+    deadline_str: Optional[str],
+    source_url: Optional[str],
+    official_sources: dict,
+) -> tuple[Optional[str], str]:
+    """Check application deadline against current date and official source backing.
+    Returns (cleaned_deadline, deadline_status) where status is 'upcoming', 'expired', or 'not_published'.
+    """
+    if not deadline_str or not isinstance(deadline_str, str) or not deadline_str.strip():
+        return None, "not_published"
+
+    # Deadlines must have supporting official source
+    if not source_url or source_url not in official_sources:
+        return None, "not_published"
+    src_info = official_sources.get(source_url, {})
+    if not src_info.get("is_official", False):
+        return None, "not_published"
+
+    cleaned = deadline_str.strip()
+    parsed_date = None
+    try:
+        from datetime import date
+        parsed_date = date.fromisoformat(cleaned[:10])
+    except ValueError:
+        pass
+
+    if parsed_date is None:
+        m = re.search(r"(\d{1,2})[-/](\d{1,2})[-/](\d{4})", cleaned)
+        if m:
+            d, mon, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            try:
+                from datetime import date
+                parsed_date = date(y, mon, d)
+                cleaned = parsed_date.isoformat()
+            except ValueError:
+                pass
+
+    if parsed_date is None:
+        if "closed" in cleaned.lower() or "expired" in cleaned.lower():
+            return cleaned, "expired"
+        return cleaned, "not_published"
+
+    today = datetime.now(timezone.utc).date()
+    if parsed_date < today:
+        return cleaned, "expired"
+    return cleaned, "upcoming"
+
+
+def sanitize_and_salvage_scheme(raw: dict, error: Optional[ValidationError] = None) -> Optional[SchemeRecord]:
+    """Tolerantly repair a SchemeRecord dict that failed strict validation.
+    Drops only the specific invalid sub-items (criteria, documents, claims)
+    while preserving the rest of the scheme record.
+    """
+    try:
+        data = copy.deepcopy(raw)
+        name = data.get("name") or data.get("title") or "Unnamed Scheme"
+        data["name"] = str(name).strip()
+        data["id"] = str(data.get("id") or re.sub(r"[^a-z0-9_]+", "_", data["name"].lower()).strip("_") or "scheme")
+
+        # Repair eligibility criteria item-by-item
+        valid_criteria = []
+        for c in data.get("eligibility_criteria") or []:
+            if isinstance(c, dict):
+                try:
+                    valid_criteria.append(SchemeCriterion.model_validate(c))
+                except ValidationError as e:
+                    logger.warning("Dropped invalid eligibility criterion in %s: %s", data["name"], e)
+            elif isinstance(c, SchemeCriterion):
+                valid_criteria.append(c)
+        data["eligibility_criteria"] = valid_criteria
+
+        # Repair documents item-by-item
+        valid_docs = []
+        for d in data.get("documents") or []:
+            if isinstance(d, dict):
+                if not str(d.get("name") or "").strip():
+                    logger.warning("Dropped document with empty name in %s", data["name"])
+                    continue
+                try:
+                    valid_docs.append(SchemeDocument.model_validate(d))
+                except ValidationError as e:
+                    logger.warning("Dropped invalid document in %s: %s", data["name"], e)
+            elif isinstance(d, SchemeDocument):
+                if d.name.strip():
+                    valid_docs.append(d)
+        data["documents"] = valid_docs
+        data["required_documents"] = [d.name for d in valid_docs]
+
+        # Repair claims item-by-item
+        valid_claims = []
+        for cl in data.get("claims") or []:
+            if isinstance(cl, dict):
+                try:
+                    valid_claims.append(SchemeClaim.model_validate(cl))
+                except ValidationError as e:
+                    logger.warning("Dropped invalid claim in %s: %s", data["name"], e)
+            elif isinstance(cl, SchemeClaim):
+                valid_claims.append(cl)
+        data["claims"] = valid_claims
+
+        # Repair source_evidence item-by-item
+        valid_ev = []
+        for ev in data.get("source_evidence") or []:
+            if isinstance(ev, dict):
+                try:
+                    valid_ev.append(SourceEvidence.model_validate(ev))
+                except ValidationError:
+                    pass
+            elif isinstance(ev, SourceEvidence):
+                valid_ev.append(ev)
+        data["source_evidence"] = valid_ev
+
+        # Repair lists that might have been received as strings or None
+        for key in ("target_groups", "benefits", "match_reasons", "missing_information"):
+            val = data.get(key)
+            if isinstance(val, str):
+                data[key] = [val]
+            elif not isinstance(val, list):
+                data[key] = []
+
+        gov_level = data.get("government_level", "unknown")
+        if gov_level not in ("central", "state", "local", "unknown"):
+            data["government_level"] = "unknown"
+
+        relevance = data.get("relevance", "additional")
+        if relevance not in ("direct_match", "related", "additional"):
+            data["relevance"] = "additional"
+
+        data["discovery_source"] = "live_search"
+
+        salvaged = SchemeRecord.model_validate(data)
+        logger.info("Successfully salvaged scheme record: %s", salvaged.name)
+        return salvaged
+    except Exception as salvage_err:
+        logger.error("Failed to salvage scheme %s: %s", raw.get("name"), salvage_err)
+        return None
 
 
 # ============================================================
 # 8. SCHEME DEDUPLICATION
 # ============================================================
 
-def deduplicate_schemes(schemes: list[SchemeRecord]) -> list[SchemeRecord]:
+def deduplicate_schemes(schemes: list[SchemeRecord], diagnostics: Optional[dict] = None) -> list[SchemeRecord]:
     """
     Remove duplicate SchemeRecord entries based on
     normalised name similarity.
@@ -659,6 +857,11 @@ def deduplicate_schemes(schemes: list[SchemeRecord]) -> list[SchemeRecord]:
 
         seen_names.add(name_key)
         unique.append(scheme)
+
+    if diagnostics is not None:
+        diagnostics["schemes_duplicates_removed_count"] = (
+            diagnostics.get("schemes_duplicates_removed_count", 0) + (len(schemes) - len(unique))
+        )
 
     return unique
 
@@ -684,7 +887,8 @@ def extract_schemes(
     client,
     model: str,
     search_results: list[dict],
-    user_context: dict | None = None
+    user_context: dict | None = None,
+    diagnostics: Optional[dict] = None,
 ) -> list[SchemeRecord]:
     """
     Extract government scheme records from search results
@@ -697,6 +901,7 @@ def extract_schemes(
             the search provider.
         user_context: User profile dict for relevance
             classification.
+        diagnostics: Optional dict to track extraction diagnostics.
 
     Returns:
         List of validated SchemeRecord objects.
@@ -705,6 +910,8 @@ def extract_schemes(
         return []
 
     user_context = user_context or {}
+    user_loc = user_context.get("location") if isinstance(user_context.get("location"), dict) else {}
+    user_state = user_loc.get("state") or user_context.get("state") or "Karnataka"
 
     # --------------------------------------------------------
     # A. Accept usable official search results
@@ -721,8 +928,7 @@ def extract_schemes(
         content = result.get("content", "")
 
         if (
-            result.get("is_official") is True
-            and isinstance(url, str)
+            isinstance(url, str)
             and url.startswith(("https://", "http://"))
             and isinstance(content, str)
             and content.strip()
@@ -730,11 +936,12 @@ def extract_schemes(
             official_sources[url] = {
                 "title": result.get("title", ""),
                 "url": url,
-                "content": content.strip()
+                "content": content.strip(),
+                "is_official": bool(result.get("is_official", False)),
             }
 
     if not official_sources:
-        logger.info("No usable official source content found.")
+        logger.info("No usable search source content found.")
         return []
 
     # --------------------------------------------------------
@@ -766,6 +973,11 @@ OFFICIAL SEARCH RESULTS:
     if not isinstance(raw_schemes, list):
         logger.warning("'schemes' field is not a list.")
         return []
+
+    if diagnostics is not None:
+        diagnostics["schemes_extracted_count"] = (
+            diagnostics.get("schemes_extracted_count", 0) + len(raw_schemes)
+        )
 
     validated_schemes = []
 
@@ -810,7 +1022,7 @@ OFFICIAL SEARCH RESULTS:
                 "title": source["title"],
                 "url": url,
                 "excerpt": source["content"][:2000],
-                "is_official": True
+                "is_official": source.get("is_official", False),
             })
 
         raw_scheme["source_evidence"] = accepted_evidence
@@ -826,6 +1038,9 @@ OFFICIAL SEARCH RESULTS:
 
         if raw_scheme.get("application_url") not in evidence_urls:
             raw_scheme["application_url"] = None
+
+        if raw_scheme.get("deadline_source_url") not in evidence_urls:
+            raw_scheme["deadline_source_url"] = None
 
         # ----------------------------------------------------
         # C2. Clean claims
@@ -879,15 +1094,24 @@ OFFICIAL SEARCH RESULTS:
             accepted_evidence
         )
 
+        if diagnostics is not None:
+            diagnostics["claims_verified_count"] = (
+                diagnostics.get("claims_verified_count", 0) + len(verified_claims)
+            )
+
         for index, claim in enumerate(cleaned_claims):
 
             if index not in verified_claims:
                 continue
 
             result = verified_claims[index]
+            claim_src_url = result["source_url"]
+            src_info = official_sources.get(claim_src_url, {})
+            is_src_official = src_info.get("is_official", False)
 
-            claim["verification_status"] = "verified"
-            claim["source_url"] = result["source_url"]
+            can_verify = can_verify_for_state(claim_src_url, is_src_official, user_state)
+            claim["verification_status"] = "verified" if can_verify else "uncertain"
+            claim["source_url"] = claim_src_url
             claim["supporting_excerpt"] = result["supporting_excerpt"]
             claim["verification_reason"] = result["reason"]
 
@@ -949,7 +1173,7 @@ OFFICIAL SEARCH RESULTS:
 
             # A criterion is verified when its own quote is really on the
             # page it cites (checked here, not trusted from the model).
-            if criterion["verification_status"] != "verified":
+            if criterion["verification_status"] not in ("verified", "uncertain"):
                 quote = verbatim_evidence(
                     criterion.get("evidence"),
                     criterion.get("source_url"),
@@ -957,7 +1181,10 @@ OFFICIAL SEARCH RESULTS:
                 )
                 criterion["evidence"] = quote
                 if quote:
-                    criterion["verification_status"] = "verified"
+                    src_url = criterion.get("source_url")
+                    is_off = official_sources.get(src_url, {}).get("is_official", False)
+                    can_verify = can_verify_for_state(src_url, is_off, user_state)
+                    criterion["verification_status"] = "verified" if can_verify else "uncertain"
 
             cleaned_criteria.append(criterion)
 
@@ -986,11 +1213,21 @@ OFFICIAL SEARCH RESULTS:
                 continue
 
             seen_doc_names.add(name.casefold())
+
+            # Determine mandatory status
+            mandatory = doc.get("mandatory")
+            if mandatory is None:
+                name_lower = name.lower()
+                mandatory = not ("optional" in name_lower or "if applicable" in name_lower or "if available" in name_lower)
+            else:
+                mandatory = bool(mandatory)
+
             source_url = doc.get("source_url") if doc.get("source_url") in evidence_urls else None
             quote = verbatim_evidence(doc.get("evidence"), source_url, official_sources)
 
             cleaned_documents.append({
                 "name": name,
+                "mandatory": mandatory,
                 "source_url": source_url if quote else None,
                 "evidence": quote
             })
@@ -1003,10 +1240,23 @@ OFFICIAL SEARCH RESULTS:
         for name in names:
             if name.strip().casefold() not in seen_doc_names:
                 seen_doc_names.add(name.strip().casefold())
-                cleaned_documents.append({"name": name.strip(), "source_url": None, "evidence": None})
+                name_clean = name.strip()
+                name_lower = name_clean.lower()
+                mandatory = not ("optional" in name_lower or "if applicable" in name_lower or "if available" in name_lower)
+                cleaned_documents.append({"name": name_clean, "mandatory": mandatory, "source_url": None, "evidence": None})
 
         raw_scheme["documents"] = cleaned_documents
         raw_scheme["required_documents"] = [d["name"] for d in cleaned_documents]
+
+        # ----------------------------------------------------
+        # C5c. Check and validate application deadline
+        # ----------------------------------------------------
+
+        dl_str = raw_scheme.get("deadline")
+        dl_src = raw_scheme.get("deadline_source_url")
+        cleaned_dl, dl_status = check_deadline(dl_str, dl_src, official_sources)
+        raw_scheme["deadline"] = cleaned_dl
+        raw_scheme["deadline_status"] = dl_status
 
         # ----------------------------------------------------
         # C6. Calculate relevance
@@ -1064,10 +1314,16 @@ OFFICIAL SEARCH RESULTS:
 
         except ValidationError as error:
             logger.warning(
-                "Skipped invalid scheme record: %s\n%s",
+                "Scheme record '%s' failed initial validation: %s. Salvaging valid information...",
                 raw_scheme.get("name", "Unknown"),
                 error
             )
+            salvaged = sanitize_and_salvage_scheme(raw_scheme, error)
+            if salvaged:
+                validated_schemes.append(salvaged)
+            else:
+                if diagnostics is not None:
+                    diagnostics["schemes_validation_failed_count"] = diagnostics.get("schemes_validation_failed_count", 0) + 1
 
     # Deduplicate extracted schemes
-    return deduplicate_schemes(validated_schemes)
+    return deduplicate_schemes(validated_schemes, diagnostics=diagnostics)

@@ -69,3 +69,13 @@ Document decisions on requirement normalization, question ranking algorithms, an
   3. Coordinated with Member 3 on keyword argument expectations for `build_action_plan` and `apply_answers` state persistence.
 * **Consequences:** Member 2's 282 offline tests remain 100% green; pipeline integration is unblocked.
 
+### [2026-11-01] ADR-008: Geographical Applicability Normalization and Auto-Assessment
+* **Status:** Accepted
+* **Context:** State conditions (e.g. Haryana) were previously turning into `unmapped:haryana` and prompting citizens with "Does this apply to you: 'haryana'?". In addition, document requirements lacked mandatory vs optional tracking into the action plan checklist.
+* **Decision:**
+  1. Added `INDIAN_STATES` catalog in `member2/attributes.py` and canonical rule mapping in `member2/normalize.py` to `attribute="state", operator=Operator.eq, value="<State>"`.
+  2. In `member2/assess.py`, established bidirectional inference between `state == 'Karnataka'` and `domicile_karnataka == True`, and automatically evaluated requirements or unmapped conditions mentioning other states to `RequirementStatus.not_satisfied`.
+  3. In `member2/questions.py`, filtered out candidate questions mentioning other states if the citizen's residency is known.
+  4. Added `mandatory: bool = True` to `DocumentRequirement` and `ChecklistItem`, carrying the mandatory/optional status into the action plan graph.
+* **Consequences:** Never asks citizens about other states; accurately disqualifies other-state conditions; action plan distinguishes mandatory documents from optional ones.
+

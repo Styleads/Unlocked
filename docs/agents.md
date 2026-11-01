@@ -83,6 +83,7 @@ class DocumentDependency(BaseModel):
 
 class DocumentRequirement(BaseModel):
     name: str  # official name of required certificate/document
+    mandatory: bool = True  # whether this document is mandatory or optional
     source_url: Optional[str] = None  # official URL confirming this document is required
     evidence: Optional[str] = None  # verbatim excerpt mentioning the document requirement
     dependencies: list[DocumentDependency] = Field(default_factory=list)
@@ -101,9 +102,10 @@ class SchemeRecord(BaseModel):
     application_steps: list[str] = Field(default_factory=list)
     application_url: Optional[str] = None
     deadline: Optional[str] = None  # ISO date (YYYY-MM-DD), only if verified
+    deadline_status: Optional[Literal["upcoming", "expired", "not_published"]] = "not_published"
     deadline_source_url: Optional[str] = None
     official_sources: list[str] = Field(default_factory=list)  # verified official source links (.gov.in / .nic.in)
-    verification_status: Literal["verified", "not_verified", "uncertain"] = "not_verified"
+    verification_status: Literal["verified", "not_verified", "uncertain", "partially_verified", "unverified"] = "not_verified"
     uncertainties: list[str] = Field(default_factory=list)
     source_type: Literal["live_search", "fallback"] = "live_search"
 ```
@@ -119,6 +121,14 @@ class SchemeRecord(BaseModel):
 >    python -m member2.check_member1 path/to/schemes.json
 >    ```
 > 6. **Compliance Adapter:** Member 1 maintains `discovery_agent/adapter.py` (`adapt_m1_to_m2_scheme` / `to_canonical_scheme`), which automatically maps raw extraction outputs into canonical `member2.models.SchemeRecord` instances with sourced documents and canonical attributes.
+> 7. **Authority vs Applicability:** Karnataka-resident discovery searches both Central Government pan-India schemes and State schemes. Central queries target national portals (e.g. `myscheme.gov.in`, `agricoop.nic.in`, `scholarships.gov.in`) without district pinning. When deep-fetching Central schemes, other states' portals (e.g., `*.haryana.gov.in`) are excluded so other states' implementation rules are not copied.
+> 8. **Geographical Conditions as Values:** State residency conditions must be mapped to `attribute="state", operator=Operator.eq, value="<State>"`, never ad-hoc `unmapped:<state>`. Agent 2 automatically evaluates other-state requirements as `not_satisfied` against the citizen's known domicile and suppresses questions about other states.
+> 9. **Verification Vocabulary Safety:** Extractor verification statuses like `"uncertain"` are fully supported across `SchemeRecord`, `SchemeCriterion`, and `SchemeClaim` with safe fallback validators to prevent dropping useful schemes.
+> 10. **Error-Tolerant Scheme Salvaging:** When extracted schemes (such as Vidyasiri) have an incomplete or malformed sub-item, the pipeline salvages the record item-by-item rather than discarding the entire scheme.
+> 11. **Evidence-Based Source Authority:** Only official Central or Karnataka government portals (`.gov.in`, `.nic.in`) can verify Karnataka eligibility. Private or external state portals cannot independently establish Karnataka eligibility; claims backed only by such sources are marked `"uncertain"`.
+> 12. **Application Deadline Calibration:** Deadlines require supporting official sources and are checked against current date (`2026-11-01`). Expired deadlines are marked with `deadline_status="expired"` and rendered prominently in red.
+> 13. **Document Mandatory Tracking:** Document requirements retain `mandatory: bool` (default True; False for optional/conditional documents) and carry forward official source URLs and evidence directly into Agent 3's DAG planning.
+> 14. **Discovery Diagnostics:** The discovery pipeline tracks and outputs execution metrics: queries generated, search results retrieved, unique results, schemes extracted, validation failures, duplicates removed, claims verified, and final schemes.
 
 ### 2.2 System Prompt & Extraction Schema
 
@@ -395,6 +405,7 @@ class ChecklistItem(BaseModel):
     name: str  # display title, e.g. "Income Certificate"
     status: DocStatus  # "needed" | "have" | "obtained" | "unknown"
     order: int  # 1-based sequential position in the prioritized action plan
+    mandatory: bool = True  # whether this document is mandatory or optional
     required_by_scheme_ids: list[str] = Field(default_factory=list)
     dependencies: list[str] = Field(default_factory=list)  # prerequisite document ids (plan §5.4)
     source_urls: list[str] = Field(default_factory=list)
@@ -547,6 +558,99 @@ CREATE TABLE IF NOT EXISTS sessions (
     plan_json TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Phase 9 Follow-Through, Reminders & Tokens Schema:
+CREATE TABLE IF NOT EXISTS notification_preferences (
+    session_id TEXT PRIMARY KEY,
+    email TEXT,
+    email_enabled INTEGER NOT NULL DEFAULT 0,
+    categories_json TEXT NOT NULL DEFAULT '{}',
+    consent_version TEXT NOT NULL DEFAULT 'v1',
+    consent_at TIMESTAMP,
+    disabled_at TIMESTAMP,
+    timezone TEXT NOT NULL DEFAULT 'Asia/Kolkata',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS tracked_applications (
+    application_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    scheme_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'not_started',
+    status_source TEXT NOT NULL DEFAULT 'user_reported',
+    reported_submission_at TIMESTAMP,
+    recovery_status TEXT,
+    recovery_data_json TEXT,
+    last_updated_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS appointments (
+    appointment_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    application_id TEXT,
+    related_task_id TEXT,
+    purpose TEXT NOT NULL,
+    scheduled_at_utc TIMESTAMP,
+    timezone TEXT NOT NULL DEFAULT 'Asia/Kolkata',
+    location TEXT,
+    status TEXT NOT NULL DEFAULT 'scheduled',
+    outcome_summary TEXT,
+    outcome_details_json TEXT,
+    status_source TEXT NOT NULL DEFAULT 'user_reported',
+    follow_up_at_utc TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS application_events (
+    event_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    application_id TEXT,
+    appointment_id TEXT,
+    event_type TEXT NOT NULL,
+    old_status TEXT,
+    new_status TEXT,
+    source TEXT NOT NULL DEFAULT 'user_reported',
+    details_json TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS notifications (
+    notification_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    application_id TEXT,
+    appointment_id TEXT,
+    notification_type TEXT NOT NULL,
+    channel TEXT NOT NULL DEFAULT 'email',
+    recipient TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    body_html TEXT,
+    body_text TEXT,
+    scheduled_at_utc TIMESTAMP,
+    status TEXT NOT NULL DEFAULT 'scheduled',
+    provider TEXT NOT NULL DEFAULT 'resend',
+    provider_message_id TEXT,
+    idempotency_key TEXT UNIQUE,
+    sent_at_utc TIMESTAMP,
+    delivered_at_utc TIMESTAMP,
+    last_error TEXT,
+    is_demo INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS follow_up_tokens (
+    token_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    appointment_id TEXT,
+    application_id TEXT,
+    token_hash TEXT UNIQUE NOT NULL,
+    expires_at_utc TIMESTAMP NOT NULL,
+    revoked_at_utc TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 ```
 

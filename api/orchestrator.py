@@ -115,6 +115,9 @@ def build_scheme_views(
                 ],
                 application_steps=s.application_steps,
                 application_url=s.application_url,
+                deadline=s.deadline,
+                deadline_status=getattr(s, "deadline_status", None),
+                deadline_source_url=s.deadline_source_url,
                 official_sources=s.official_sources,
                 source_type=s.source_type,
                 assessment_status=ass.status.value if ass else None,
@@ -160,6 +163,7 @@ async def run_discovery(
     effective_scope = search_scope or session.scope or "guided"
     effective_language = preferred_language or session.preferred_language or "en"
     warnings: list[str] = []
+    diagnostics: dict[str, int] = {}
 
     logger.info(
         "Starting discovery for session=%s, scope=%s, language=%s",
@@ -173,6 +177,7 @@ async def run_discovery(
         session.context,
         search_scope=effective_scope,
         enable_fallback=enable_fallback,
+        diagnostics=diagnostics,
     )
 
     translation_status = "not_requested"
@@ -240,6 +245,7 @@ async def run_discovery(
         preferred_language=effective_language,
         translation_status=translation_status,
         warnings=warnings,
+        diagnostics=diagnostics,
     )
 
 

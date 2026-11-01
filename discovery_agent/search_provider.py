@@ -42,6 +42,12 @@ OFFICIAL_DOMAINS = [
     "pib.gov.in",
     "india.gov.in",
     "karnataka.gov.in",
+    "ssp.postmatric.karnataka.gov.in",
+    "ssp.karnataka.gov.in",
+    "swd.karnataka.gov.in",
+    "bcwd.karnataka.gov.in",
+    "shp.karnataka.gov.in",
+    "sw.kar.nic.in",
 ]
 
 # Search snippets (~1,500 chars) rarely contain the eligibility rules or the
@@ -205,8 +211,6 @@ def search_web(query: str, max_results: int = 10, include_raw: bool = False) -> 
                 query=query,
                 search_depth="basic",
                 max_results=max_results,
-                include_domains=OFFICIAL_DOMAINS,
-                include_domains_mode="restrict",
                 include_answer=False,
                 include_raw_content=True,
             )
@@ -228,12 +232,10 @@ def search_web(query: str, max_results: int = 10, include_raw: bool = False) -> 
 
                 url = item.get("url", "")
 
-                if not isinstance(url, str):
+                if not isinstance(url, str) or not url.strip():
                     continue
 
-                # Second layer of protection.
-                if not is_official_government_url(url):
-                    continue
+                is_official = is_official_government_url(url)
 
                 title = item.get("title", "")
                 content = item.get("content", "")
@@ -253,7 +255,7 @@ def search_web(query: str, max_results: int = 10, include_raw: bool = False) -> 
                     "url": url,
                     "content": content,
                     "score": item.get("score", 0),
-                    "is_official": True,
+                    "is_official": is_official,
                 }
                 if include_raw:
                     # Full page text, for per-scheme extraction (scheme_details.py).

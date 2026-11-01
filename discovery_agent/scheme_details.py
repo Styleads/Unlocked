@@ -18,7 +18,7 @@ import logging
 import re
 from typing import Any, Callable, Optional
 
-from discovery_agent.scheme_extractor import generate_json, verbatim_evidence
+from discovery_agent.scheme_extractor import generate_json, verbatim_evidence, OTHER_STATE_DOMAINS
 
 logger = logging.getLogger(__name__)
 
@@ -38,12 +38,32 @@ BENEFICIARY_TYPES = ("individual", "organisation", "government", "mixed")
 NOT_FOR_INDIVIDUALS = ("organisation", "government")
 
 
+CENTRAL_JURISDICTIONS = {
+    "central",
+    "india",
+    "national",
+    "union",
+    "pan-india",
+    "pan india",
+    "central government",
+    "all-india",
+    "all india",
+    "government of india",
+    "goi",
+}
+
+
 def other_state(record: dict, user_state: Optional[str]) -> bool:
     """True if the scheme's quoted jurisdiction is a different state than the
     user's. Central schemes and schemes without a verified jurisdiction stay."""
+    gov_level = str(record.get("government_level") or "").strip().casefold()
+    if gov_level == "central":
+        return False
     j = str(record.get("jurisdiction") or "").strip().casefold()
+    if not j or j in CENTRAL_JURISDICTIONS:
+        return False
     u = str(user_state or "").strip().casefold()
-    return bool(j and u and j != "central" and j != u)
+    return bool(u and j != u)
 
 DETAIL_INSTRUCTIONS = """
 You read the official text about ONE government scheme and list its rules.
@@ -237,19 +257,29 @@ def enrich_scheme(
     model: str,
     scheme: dict,
     search: Callable[..., list[dict]],
+    user_state: Optional[str] = "Karnataka",
 ) -> bool:
     """Deep-fetch one scheme (a dict in Agent 1's schema), in place.
     Never raises; returns True if verified rules were found."""
     name = scheme.get("name")
     if not isinstance(name, str) or not name.strip():
         return False
+    gov_level = str(scheme.get("government_level") or "").strip().casefold()
+    j = str(scheme.get("jurisdiction") or "").strip().casefold()
+    is_central = gov_level == "central" or j in CENTRAL_JURISDICTIONS
+    state_term = user_state or scheme.get("state") or "Karnataka"
+    query = (
+        f"{name} scheme {state_term} eligibility criteria official guidelines"
+        if is_central
+        else f"{name} eligibility {state_term}"
+    )
     try:
-        results = search(f"{name} eligibility Karnataka", SEARCH_RESULTS_PER_SCHEME, include_raw=True)
+        results = search(query, SEARCH_RESULTS_PER_SCHEME, include_raw=True)
     except Exception as error:  # search is best-effort here; the first pass already ran
         logger.warning("Detail search failed for a scheme: %s", type(error).__name__)
         return False
 
-    pages = _collect_pages(results, name)
+    pages = _collect_pages(results, name, user_state=user_state)
     if not pages:
         return False
     prompt = (DETAIL_INSTRUCTIONS + "\n\nSCHEME: " + name
@@ -263,17 +293,21 @@ def enrich_scheme(
     # Document lists usually live on a separate page ("Documents required",
     # the portal guide), so look once more if none was sourced.
     if ok and not any(isinstance(d, dict) and d.get("source_url") for d in scheme.get("documents") or []):
-        _documents_pass(client, model, scheme, search)
+        _documents_pass(client, model, scheme, search, user_state=user_state)
     return ok
 
 
-def _collect_pages(results: list[dict], name: str) -> dict[str, dict]:
+def _collect_pages(results: list[dict], name: str, user_state: Optional[str] = "Karnataka") -> dict[str, dict]:
     """Official pages naming the scheme, cut to its block, fullest first."""
     pages: dict[str, dict] = {}
     key = name_key(name)
+    u_state = (user_state or "").lower().strip()
     for result in results or []:
         url = result.get("url")
-        if not isinstance(url, str) or url in pages or not result.get("is_official"):
+        if not isinstance(url, str) or url in pages:
+            continue
+        url_lower = url.lower()
+        if u_state and any(st in url_lower for st in OTHER_STATE_DOMAINS if u_state not in st):
             continue
         own_page = key in _squash(url) or key in _squash(result.get("title") or "")
         blocks = scheme_blocks(result.get("raw_content") or "", name,
@@ -306,13 +340,19 @@ Return JSON only: {"documents": [{"name": "", "source_url": "", "evidence": ""}]
 """
 
 
-def _documents_pass(client: Any, model: str, scheme: dict, search: Callable[..., list[dict]]) -> int:
+def _documents_pass(
+    client: Any,
+    model: str,
+    scheme: dict,
+    search: Callable[..., list[dict]],
+    user_state: Optional[str] = "Karnataka",
+) -> int:
     """Search for the scheme's documents list and add the sourced ones.
     Best-effort; returns how many sourced documents were added."""
     name = scheme["name"]
     try:
         results = search(f"{name} documents required", SEARCH_RESULTS_PER_SCHEME, include_raw=True)
-        pages = _collect_pages(results, name)
+        pages = _collect_pages(results, name, user_state=user_state)
         if not pages:
             return 0
         data = generate_json(client, model, DOCUMENTS_INSTRUCTIONS + "\n\nSCHEME: " + name

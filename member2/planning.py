@@ -63,9 +63,11 @@ def _drop_unlikely(
 def _build_graph(schemes: list[SchemeRecord], warnings: list[str], excluded: list[str]) -> nx.DiGraph:
     g = nx.DiGraph()
 
-    def add_doc(doc_id: str, label: str) -> None:
+    def add_doc(doc_id: str, label: str, mandatory: bool = True) -> None:
         if doc_id not in g:
-            g.add_node(doc_id, kind="document", label=label, sources=set())
+            g.add_node(doc_id, kind="document", label=label, sources=set(), mandatory=mandatory)
+        elif mandatory:
+            g.nodes[doc_id]["mandatory"] = True
 
     for scheme in schemes:
         g.add_node(scheme.id, kind="scheme", label=scheme.name)
@@ -76,7 +78,8 @@ def _build_graph(schemes: list[SchemeRecord], warnings: list[str], excluded: lis
                 warnings.append(f"'{doc.name}' for {scheme.name} was left out: no source confirms it is required.")
                 continue
             doc_id, label = normalize_document_name(doc.name)
-            add_doc(doc_id, label)
+            doc_mandatory = getattr(doc, "mandatory", True)
+            add_doc(doc_id, label, mandatory=doc_mandatory)
             g.nodes[doc_id]["sources"].add(doc.source_url)
             if not g.has_edge(doc_id, scheme.id):
                 g.add_edge(doc_id, scheme.id, relation=REQUIRED_FOR, source_url=doc.source_url)
@@ -89,7 +92,7 @@ def _build_graph(schemes: list[SchemeRecord], warnings: list[str], excluded: lis
                 if dep_id == doc_id:
                     warnings.append(f"'{doc.name}' was listed as its own prerequisite; ignored.")
                     continue
-                add_doc(dep_id, dep_label)
+                add_doc(dep_id, dep_label, mandatory=doc_mandatory)
                 g.nodes[dep_id]["sources"].add(dep.source_url)
                 if not g.has_edge(dep_id, doc_id):
                     g.add_edge(dep_id, doc_id, relation=PREREQUISITE_OF, source_url=dep.source_url)
@@ -195,6 +198,7 @@ def build_action_plan(
             name=label,
             status=st,
             order=position,
+            mandatory=g.nodes[doc_id].get("mandatory", True),
             required_by_scheme_ids=required_by[doc_id],
             dependencies=sorted(docs_graph.predecessors(doc_id)),
             source_urls=sorted(g.nodes[doc_id]["sources"]),

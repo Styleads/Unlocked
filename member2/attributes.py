@@ -44,12 +44,16 @@ _SPECS = [
         id="state",
         label="State of residence",
         input_type=InputType.select,
-        options=["Karnataka", "Other"],
+        options=[
+            "Karnataka", "Haryana", "Maharashtra", "Tamil Nadu", "Andhra Pradesh",
+            "Kerala", "Telangana", "Punjab", "Gujarat", "Rajasthan", "Uttar Pradesh",
+            "West Bengal", "Delhi", "Other"
+        ],
         sensitivity=Sensitivity.low,
         effort=0,
         question="Which state do you live in?",
         why_template="Most schemes are run by a state or apply only to its residents.",
-        aliases=["state of residence", "resident state"],
+        aliases=["state of residence", "resident state", "state"],
     ),
     AttributeSpec(
         id="district",
@@ -209,7 +213,18 @@ _SPECS = [
         question="Are you legally domiciled in Karnataka (not just currently living there)?",
         keep_wording=True,
         why_template="Many state schemes require Karnataka domicile, not just current residence.",
-        aliases=["domicile", "karnataka domicile", "native of karnataka", "domicile of karnataka"],
+        aliases=[
+            "domicile",
+            "karnataka domicile",
+            "native of karnataka",
+            "domicile of karnataka",
+            "karnataka",
+            "in karnataka",
+            "resident in karnataka",
+            "karnataka resident",
+            "resident of karnataka",
+            "permanent resident of karnataka",
+        ],
     ),
     AttributeSpec(
         id="receives_other_scholarship",
@@ -289,6 +304,82 @@ def resolve_attribute(name: str) -> Optional[str]:
     """Exact match on id, label or alias after normalization. No fuzzy guessing:
     a miss means the requirement needs clarification."""
     return _ALIAS_INDEX.get(normalize_text(name))
+
+
+# Canonical Indian States catalog
+INDIAN_STATES = {
+    "andhra pradesh": "Andhra Pradesh",
+    "arunachal pradesh": "Arunachal Pradesh",
+    "assam": "Assam",
+    "bihar": "Bihar",
+    "chhattisgarh": "Chhattisgarh",
+    "goa": "Goa",
+    "gujarat": "Gujarat",
+    "haryana": "Haryana",
+    "himachal pradesh": "Himachal Pradesh",
+    "jharkhand": "Jharkhand",
+    "karnataka": "Karnataka",
+    "kerala": "Kerala",
+    "madhya pradesh": "Madhya Pradesh",
+    "maharashtra": "Maharashtra",
+    "manipur": "Manipur",
+    "meghalaya": "Meghalaya",
+    "mizoram": "Mizoram",
+    "nagaland": "Nagaland",
+    "odisha": "Odisha",
+    "punjab": "Punjab",
+    "rajasthan": "Rajasthan",
+    "sikkim": "Sikkim",
+    "tamil nadu": "Tamil Nadu",
+    "telangana": "Telangana",
+    "tripura": "Tripura",
+    "uttar pradesh": "Uttar Pradesh",
+    "uttarakhand": "Uttarakhand",
+    "west bengal": "West Bengal",
+    "delhi": "Delhi",
+    "jammu and kashmir": "Jammu and Kashmir",
+    "ladakh": "Ladakh",
+    "puducherry": "Puducherry",
+    "chandigarh": "Chandigarh",
+}
+
+
+def detect_state_in_text(text: Optional[str]) -> Optional[str]:
+    """Identify if text refers to an Indian state, returning canonical state title."""
+    if not text or not isinstance(text, str):
+        return None
+    cleaned = re.sub(r"[^a-zA-Z\s]", " ", text.lower())
+    words = set(cleaned.split())
+    # Multi-word states first
+    for state_key, canonical in INDIAN_STATES.items():
+        if " " in state_key:
+            if state_key in cleaned:
+                return canonical
+        elif state_key in words:
+            return canonical
+    return None
+
+
+# Canonical Karnataka districts catalog
+KARNATAKA_DISTRICTS = {
+    "bagalkot", "ballari", "bellary", "belagavi", "belgaum", "bengaluru",
+    "bengaluru urban", "bengaluru rural", "bangalore", "bidar",
+    "chamarajanagar", "chikkaballapur", "chikkamagaluru", "chikmagalur",
+    "chitradurga", "dakshina kannada", "mangalore", "mangaluru", "davanagere",
+    "dharwad", "gadag", "hassan", "haveri", "kalaburagi", "gulbarga",
+    "kodagu", "coorg", "kolar", "koppal", "mandya", "mysuru", "mysore",
+    "raichur", "ramanagara", "shivamogga", "shimoga", "tumakuru", "tumkur",
+    "udupi", "uttara kannada", "karwar", "vijayapura", "bijapur",
+    "vijayanagara", "yadgir",
+}
+
+
+def is_karnataka_district(district_name: Optional[str]) -> bool:
+    """Return True if district belongs to Karnataka."""
+    if not district_name or not isinstance(district_name, str):
+        return False
+    norm = normalize_text(district_name)
+    return norm in KARNATAKA_DISTRICTS or any(d in norm for d in KARNATAKA_DISTRICTS)
 
 
 # --- a scheme's own conditions -----------------------------------------------

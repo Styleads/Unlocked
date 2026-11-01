@@ -6,9 +6,9 @@ discovered through live search or loaded from fallback data.
 """
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # --------------------------------------------------
@@ -18,7 +18,9 @@ from pydantic import BaseModel, Field
 VerificationStatus = Literal[
     "verified",
     "partially_verified",
-    "unverified"
+    "unverified",
+    "uncertain",
+    "not_verified"
 ]
 
 ClaimCategory = Literal[
@@ -68,6 +70,22 @@ class SchemeClaim(BaseModel):
     verification_status: VerificationStatus = "unverified"
     verification_reason: str = ""
 
+    @field_validator("verification_status", mode="before")
+    @classmethod
+    def normalize_verification_status(cls, v: Any) -> str:
+        if not isinstance(v, str):
+            return "unverified"
+        val = v.strip().lower()
+        if val in ("verified", "partially_verified", "unverified", "uncertain", "not_verified"):
+            return val
+        if "partial" in val:
+            return "partially_verified"
+        if "uncert" in val:
+            return "uncertain"
+        if "verif" in val and "unverif" not in val and "not" not in val:
+            return "verified"
+        return "unverified"
+
 
 class SchemeCriterion(BaseModel):
     """A single eligibility criterion for a scheme."""
@@ -82,6 +100,22 @@ class SchemeCriterion(BaseModel):
     kind: Literal["eligibility", "obligation"] = "eligibility"
     verification_status: VerificationStatus = "unverified"
 
+    @field_validator("verification_status", mode="before")
+    @classmethod
+    def normalize_verification_status(cls, v: Any) -> str:
+        if not isinstance(v, str):
+            return "unverified"
+        val = v.strip().lower()
+        if val in ("verified", "partially_verified", "unverified", "uncertain", "not_verified"):
+            return val
+        if "partial" in val:
+            return "partially_verified"
+        if "uncert" in val:
+            return "uncertain"
+        if "verif" in val and "unverif" not in val and "not" not in val:
+            return "verified"
+        return "unverified"
+
 
 class SchemeDocument(BaseModel):
     """A required document with the sentence that requires it.
@@ -89,7 +123,8 @@ class SchemeDocument(BaseModel):
     source_url and evidence are set only when the quote was found
     verbatim on that page; otherwise both are None."""
 
-    name: str
+    name: str = Field(min_length=1)
+    mandatory: bool = True
     source_url: str | None = None
     evidence: str | None = None
 
@@ -124,6 +159,22 @@ class SchemeRecord(BaseModel):
     application_url: str | None = None
     official_url: str | None = None
 
+    # Contact information and deadlines
+    deadline: str | None = None
+    deadline_status: Literal["upcoming", "expired", "not_published"] = "not_published"
+    deadline_source_url: str | None = None
+    contact_email: str | None = None
+    contact_email_source_url: str | None = None
+    contact_phone: str | None = None
+    contact_phone_source_url: str | None = None
+    office_hours: str | None = None
+    office_hours_source_url: str | None = None
+    whatsapp_number: str | None = None
+    whatsapp_number_source_url: str | None = None
+    reception_number: str | None = None
+    reception_number_source_url: str | None = None
+    contact_source: Literal["website", "receiver_provided", "user_provided"] | None = None
+
     # Government classification
     government_level: GovernmentLevel = "unknown"
     department: str | None = None
@@ -136,6 +187,22 @@ class SchemeRecord(BaseModel):
     claims: list[SchemeClaim] = Field(default_factory=list)
 
     verification_status: VerificationStatus = "unverified"
+
+    @field_validator("verification_status", mode="before")
+    @classmethod
+    def normalize_verification_status(cls, v: Any) -> str:
+        if not isinstance(v, str):
+            return "unverified"
+        val = v.strip().lower()
+        if val in ("verified", "partially_verified", "unverified", "uncertain", "not_verified"):
+            return val
+        if "partial" in val:
+            return "partially_verified"
+        if "uncert" in val:
+            return "uncertain"
+        if "verif" in val and "unverif" not in val and "not" not in val:
+            return "verified"
+        return "unverified"
 
     discovery_source: Literal[
         "live_search", "fallback"

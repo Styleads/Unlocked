@@ -15,7 +15,7 @@ from typing import Any, Iterable, Optional
 from pydantic import BaseModel, ValidationError
 
 from .assess import SchemeInput, _as_scheme
-from .attributes import ATTRIBUTES, AttributeSpec, is_canonical, normalize_text, resolve_attribute
+from .attributes import ATTRIBUTES, AttributeSpec, detect_state_in_text, is_canonical, normalize_text, resolve_attribute
 from .llm import LLMClient
 from .models import InputType, Operator, Requirement, RequirementVerification, RuleCondition, SchemeRecord
 
@@ -67,6 +67,7 @@ Rules:
   return one "structured" item per condition, all with the same id. Use attribute
   "unmapped" with a short name in "value" for a condition no attribute fits; never drop it.
 - Skip statements that exclude nobody, e.g. "all courses", "students of all categories".
+- For residency, domicile, or living in Karnataka (e.g. 'in Karnataka', 'resident of Karnataka', 'permanent resident of Karnataka'), ALWAYS use attribute "domicile_karnataka" with operator "is_true" and value null. NEVER use "unmapped" for Karnataka residency or state.
 - If a condition applies only to one group (e.g. "65% for General, 60% for SC/ST"),
   return one item per group and add "when": {{"attribute": ..., "operator": ..., "value": ...}}
   naming the group, e.g. {{"attribute": "social_category", "operator": "in", "value": ["SC", "ST"]}}.
@@ -282,6 +283,21 @@ def _numbers_supported(value: Any, evidence: Optional[str]) -> bool:
 def _canonical_rule(attribute: Optional[str], operator: Optional[str], value: Any, fallback_slug: str) -> tuple[str, Optional[Operator], Any]:
     """Map the model's attribute/operator/value onto the registry. Anything that
     doesn't fit leaves operator None, which assessment treats as needs_clarification."""
+    # Check if attribute, value or fallback_slug refers to Karnataka residency
+    val_str = str(value or "").strip().lower()
+    slug_str = str(fallback_slug or "").strip().lower()
+    attr_str = str(attribute or "").strip().lower()
+
+    # Check for geographical state conditions
+    detected_state = detect_state_in_text(f"{attr_str} {slug_str} {val_str}")
+    if detected_state:
+        if detected_state == "Karnataka":
+            return "domicile_karnataka", Operator.is_true, None
+        return "state", Operator.eq, detected_state
+
+    if attr_str in ("karnataka", "domicile_karnataka") or val_str in ("karnataka", "in karnataka") or slug_str in ("karnataka", "in_karnataka", "state_of_karnataka"):
+        return "domicile_karnataka", Operator.is_true, None
+
     attr = attribute if is_canonical(attribute) else (resolve_attribute(attribute) if attribute else None)
     if not attr:
         named = attribute and attribute.strip().lower() != "unmapped"

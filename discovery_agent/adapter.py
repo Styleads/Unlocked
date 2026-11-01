@@ -157,6 +157,9 @@ def to_canonical_document(raw_doc: Any, claims: Sequence[Any] = ()) -> DocumentR
         return raw_doc
     data = _as_dict(raw_doc) or {"name": str(raw_doc)}
     name = str(data.get("name") or "").strip()
+    mandatory = bool(data.get("mandatory", True))
+    if "optional" in name.lower() or "if applicable" in name.lower():
+        mandatory = False
     source_url, evidence = data.get("source_url"), data.get("evidence")
 
     if name and not (source_url and evidence):
@@ -173,7 +176,7 @@ def to_canonical_document(raw_doc: Any, claims: Sequence[Any] = ()) -> DocumentR
             deps.append(DocumentDependency(depends_on=dd["depends_on"], source_url=dd.get("source_url"),
                                            evidence=dd.get("evidence")))
 
-    return DocumentRequirement(name=name, source_url=source_url, evidence=evidence, dependencies=deps)
+    return DocumentRequirement(name=name, mandatory=mandatory, source_url=source_url, evidence=evidence, dependencies=deps)
 
 
 def to_canonical_scheme(raw: Any) -> CanonicalSchemeRecord:
@@ -257,7 +260,19 @@ def to_canonical_scheme(raw: Any) -> CanonicalSchemeRecord:
         application_steps=app_steps,
         application_url=data.get("application_url"),
         deadline=data.get("deadline"),
+        deadline_status=data.get("deadline_status"),
         deadline_source_url=data.get("deadline_source_url"),
+        contact_email=data.get("contact_email"),
+        contact_email_source_url=data.get("contact_email_source_url"),
+        contact_phone=data.get("contact_phone"),
+        contact_phone_source_url=data.get("contact_phone_source_url"),
+        office_hours=data.get("office_hours"),
+        office_hours_source_url=data.get("office_hours_source_url"),
+        whatsapp_number=data.get("whatsapp_number"),
+        whatsapp_number_source_url=data.get("whatsapp_number_source_url"),
+        reception_number=data.get("reception_number"),
+        reception_number_source_url=data.get("reception_number_source_url"),
+        contact_source=data.get("contact_source"),
         official_sources=official_sources,
         verification_status=_map_scheme_status(data.get("verification_status")),
         uncertainties=uncertainties,

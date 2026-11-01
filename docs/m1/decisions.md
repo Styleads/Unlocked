@@ -52,4 +52,35 @@ Document decisions, provider choices, and technical trade-offs here.
   4. Renamed root interactive script `test_gemini.py` to `demo_gemini_interactive.py` to unblock automated `pytest`.
 * **Consequences:** Clean repository layout, full compliance with Member 2 and Member 3, zero test discovery lockups.
 
+### [2026-11-01] ADR-005: Open Web Search Domain Expansion & Balanced Central/State Query Planning
+* **Status:** Accepted
+* **Context:** The discovery search was artificially restricted to 16 hardcoded domains, suppressing legitimate schemes, and query generation was heavily biased towards Karnataka-specific scheme terminology without discovering Central Government schemes applicable to Karnataka citizens.
+* **Decision:**
+  1. Removed the 16-domain restriction in `search_provider.py`, allowing open web search while tagging `is_official: False` for non-government domains.
+  2. Added Gemini-driven query generation (`generate_search_queries_with_llm`) with balanced 3-4 Central queries (targeting national portals like myscheme, scholarships.gov.in, agricoop without district pinning) and 3-4 State queries (targeting Karnataka departments).
+  3. Expanded `other_state()` in `scheme_details.py` to recognize `CENTRAL_JURISDICTIONS` so Central schemes are never dropped as external states.
+* **Consequences:** Search results increased dramatically across Central and State departments while maintaining official source provenance.
+
+### [2026-11-01] ADR-006: Geographically-Aware Discovery, Evidence-Based Source Authority, Tolerant Salvaging, and Deadline Checking
+* **Status:** Accepted
+* **Context:** Post-expansion testing revealed 8 specific issues:
+  1. Geographical conditions were becoming `unmapped:<state>` (e.g. `unmapped:haryana`) and asking citizens about other states.
+  2. Central schemes copied rules from other states (e.g. Haryana) instead of Karnataka implementations.
+  3. Extraction returned `"uncertain"` but schema only accepted `"verified"`, `"partially_verified"`, `"unverified"`.
+  4. Schemes like Vidyasiri were discarded entirely when a single sub-item failed validation.
+  5. Non-government or other-state portals could erroneously mark eligibility as verified.
+  6. Lack of visibility into discovery funnel diagnostics.
+  7. Application deadlines were not calibrated against current date (`2026-11-01`).
+  8. Document requirements did not carry mandatory vs optional flags into Agent 3.
+* **Decision:**
+  1. Mapped state conditions to canonical `attribute="state", operator=Operator.eq, value="<State>"`.
+  2. Filtered out other states' portals (`*.haryana.gov.in`, etc.) when collecting pages for Central schemes when targeting Karnataka.
+  3. Expanded `VerificationStatus` to accept `"uncertain"` and added safe normalization validators.
+  4. Implemented `sanitize_and_salvage_scheme()` to repair records item-by-item instead of discarding entire schemes.
+  5. Implemented `can_verify_for_state()` ensuring only official Central or Karnataka portals can verify Karnataka eligibility.
+  6. Tracked and exposed discovery pipeline diagnostics (queries, results, extracted, validation failed, duplicates removed, claims verified, final schemes).
+  7. Implemented `check_deadline()` evaluating dates against `2026-11-01` (`deadline_status="expired"` for past dates) and requiring official source backing.
+  8. Propagated `mandatory: bool` on `SchemeDocument` and `DocumentRequirement` through to `ChecklistItem` in Agent 3.
+* **Consequences:** Discovery pipeline is robust, geographically aware, tolerant of partial extraction, and fully aligned with downstream agents.
+
 

@@ -81,6 +81,8 @@ RULES:
 8. Use only exact URLs supplied in the search results.
 9. Extract ALL distinct schemes mentioned in the results.
 10. Do not limit output to a single scheme.
+11. Central Government / National schemes are applicable to citizens residing in Karnataka and across India by default, unless the source text explicitly restricts the scheme to a specific outside state or region (e.g., North-Eastern States, Ladakh).
+12. Both official government portals (*.gov.in, *.nic.in) and public web sources may be present in search results. Extract relevant schemes and exact quotations from whichever source mentions them.
 
 Extract important factual claims separately.
 
@@ -111,7 +113,7 @@ Use this verification label:
 - unverified
 
 Government level labels:
-- central (national/central government schemes)
+- central (national/central government schemes — applicable nationwide including Karnataka)
 - state (state government schemes)
 - local (district/city/panchayat level schemes)
 - unknown (when not determinable)

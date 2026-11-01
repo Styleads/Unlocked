@@ -10,49 +10,51 @@ load_dotenv()
 
 MODEL = "gemini-flash-lite-latest"
 
-query = (
-    "official Karnataka farmer crop insurance schemes "
-    "government portal"
-)
-
-print("\n1. Searching with Tavily...")
-results = search_web(query, 5)
-
-print(f"Retrieved {len(results)} results")
-
-print("\n2. Sending results to Gemini...")
-
-client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
-
-try:
-    schemes = extract_schemes(
-        client,
-        MODEL,
-        results,
-        user_context={
-            "employment": {"occupation": "farmer"},
-            "location": {
-                "district": "Mandya",
-                "state": "Karnataka"
-            },
-            "interests": ["crop insurance"]
-        }
+if __name__ == "__main__":
+    query = (
+        "official Karnataka farmer crop insurance schemes "
+        "government portal"
     )
 
-    print(f"\n3. Extracted {len(schemes)} schemes")
+    print("\n1. Searching with Tavily...")
+    results = search_web(query, 5)
 
-    for scheme in schemes:
-        print("\n" + "=" * 50)
-        print("NAME:", scheme.name)
-        print("RELEVANCE:", scheme.relevance)
-        print("VERIFICATION:", scheme.verification_status)
-        print("OFFICIAL URL:", scheme.official_url)
+    print(f"Retrieved {len(results)} results")
 
-        print("\nCLAIMS:")
-        for claim in scheme.claims:
-            print("-", claim.claim)
-            print("  Status:", claim.verification_status)
-            print("  Source:", claim.source_url)
+    print("\n2. Sending results to Gemini...")
 
-finally:
-    client.close()
+    client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
+
+    try:
+        schemes = extract_schemes(
+            client,
+            MODEL,
+            results,
+            user_context={
+                "employment": {"occupation": "farmer"},
+                "location": {
+                    "district": "Mandya",
+                    "state": "Karnataka"
+                },
+                "interests": ["crop insurance"]
+            }
+        )
+
+        print(f"\n3. Extracted {len(schemes)} schemes")
+
+        for scheme in schemes:
+            print("\n" + "=" * 50)
+            print("NAME:", scheme.name)
+            print("RELEVANCE:", scheme.relevance)
+            print("VERIFICATION:", scheme.verification_status)
+            print("OFFICIAL URL:", scheme.official_url)
+
+            print("\nCLAIMS:")
+            for claim in scheme.claims:
+                print("-", claim.claim)
+                print("  Status:", claim.verification_status)
+                print("  Source:", claim.source_url)
+
+    finally:
+        client.close()
+
