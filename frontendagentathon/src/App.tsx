@@ -1,6 +1,7 @@
 import { RouterProvider, useRouter } from "./router";
 import type { Route } from "./router";
 import { SessionProvider } from "./session";
+import { LiveProvider } from "./live";
 import Landing from "./pages/Landing";
 import Start from "./pages/Start";
 import Details from "./pages/Details";
@@ -30,9 +31,11 @@ function Screen() {
 export default function App() {
   return (
     <SessionProvider>
-      <RouterProvider>
-        <Screen />
-      </RouterProvider>
+      <LiveProvider>
+        <RouterProvider>
+          <Screen />
+        </RouterProvider>
+      </LiveProvider>
     </SessionProvider>
   );
 }

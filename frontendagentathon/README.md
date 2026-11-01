@@ -296,3 +296,23 @@ npm run preview
 
 *Crafted with care for Karnataka citizens — empowering communities with transparent, reliable access to public welfare.*
 
+
+
+## 8. Connecting to the backend
+
+The app talks to the FastAPI service in `api/` (see `src/api.ts`). With no backend running it falls back to its built-in demo data, so it always works.
+
+```bash
+# terminal 1, from the repo root (no API keys needed: it serves its offline fallback schemes)
+python -m uvicorn api.main:app --port 8000
+
+# terminal 2
+cd frontendagentathon
+npm install
+npm run dev          # http://localhost:5173
+```
+
+- `VITE_API_URL` (see `.env.example`) points the app at another backend. The default is `http://127.0.0.1:8000`.
+- The flow: Context form -> `POST /api/sessions` -> `POST /discover` -> results (`/schemes`) -> questions (`/questions`, `/answers`) -> plan (`/plan`, `/checklist/{doc}`) -> actions (`/actions/email`, `/actions/calendar`, `/progress`).
+- Without `GEMINI_API_KEY` and `TAVILY_API_KEY` the backend returns only its verified-offline fallback schemes (rules unverified, so no questions). Add the keys to `.env` for live search and AI-assisted drafts.
+- `npm test` runs unit and page-flow tests. `src/real-backend.test.tsx` runs the whole journey against a running backend and skips itself when none is listening.

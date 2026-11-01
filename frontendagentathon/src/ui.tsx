@@ -19,6 +19,7 @@ import {
 import { Link, useRouter } from "./router";
 import type { Route } from "./router";
 import { useSession } from "./session";
+import { useLive } from "./live";
 import type { Status } from "./data";
 
 /* ---------- Buttons ---------- */
@@ -181,6 +182,7 @@ export function FlowHeader({ current }: { current: 1 | 2 | 3 | 4 }) {
 
 function StartOverDialog({ onClose }: { onClose: () => void }) {
   const { reset } = useSession();
+  const live = useLive();
   const { navigate } = useRouter();
   const keepRef = useRef<HTMLButtonElement>(null);
 
@@ -203,6 +205,7 @@ function StartOverDialog({ onClose }: { onClose: () => void }) {
           <button
             className="btn-danger"
             onClick={() => {
+              void live.leave(); // also deletes the server-side session
               reset();
               navigate("/");
             }}

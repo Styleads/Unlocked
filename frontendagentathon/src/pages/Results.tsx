@@ -4,32 +4,41 @@ import { Disclaimer, FlowHeader, OutcomeSourceBadge, PrimaryLink, SourceLink, St
 import { Link } from "../router";
 import { useSession } from "../session";
 import { evaluateAll, improvement } from "../eligibility";
-import type { EvaluatedScheme, SchemeStatus } from "../eligibility";
+import { useLive } from "../live";
+import { fromApiScheme, fromEvaluated, improveFromApi } from "../model";
+import type { SchemeVM } from "../model";
 
-type Filter = "all" | SchemeStatus;
+type Filter = "all" | SchemeVM["status"];
 
 /** Demo: append ?limited to the URL to see the "live search had trouble" banner. */
 const liveSearchFailed = () => new URLSearchParams(window.location.search).has("limited");
 
 export default function Results() {
   const { session } = useSession();
+  const live = useLive();
   const [filter, setFilter] = useState<Filter>("all");
   const [showUnlikely, setShowUnlikely] = useState(false);
   const hasAnswers = Object.values(session.answers).some((a) => a !== undefined);
 
-  // Everything below is derived from the saved answers (and the Context form), so all sections agree.
-  const evals = useMemo(() => evaluateAll(session), [session.answers, session.details]);
-  const improve = useMemo(() => improvement(evals, session), [evals, session.answers]);
+  // Everything below comes from one list of schemes (the backend's when connected, else the demo
+  // evaluation of the saved answers), so the cards, breakdown, summary and improve card always agree.
+  const demo = useMemo(() => evaluateAll(session), [session.answers, session.details]);
+  const evals: SchemeVM[] = useMemo(() => (live.active ? live.schemes.map(fromApiScheme) : demo.map(fromEvaluated)), [live.active, live.schemes, demo]);
+  const skippedAny = Object.values(live.answers).some((a) => a.state !== "answered");
+  const improve = useMemo(
+    () => (live.active ? improveFromApi(evals, live.questions, skippedAny) : improvement(demo, session)),
+    [live.active, live.questions, evals, skippedAny, demo, session.answers],
+  );
 
-  const counts = { ok: 0, info: 0, nv: 0, warn: 0 };
+  const counts = { ok: 0, info: 0, nv: 0, warn: 0, unclear: 0 };
   evals.forEach((e) => counts[e.status]++);
   const filters: { k: Filter; label: string; count: number }[] = [
     { k: "all", label: "All", count: evals.length },
-    ...(["ok", "info", "nv", "warn"] as const).filter((k) => counts[k] > 0).map((k) => ({ k, label: statusLabel(k, true), count: counts[k] })),
+    ...(["ok", "info", "nv", "unclear", "warn"] as const).filter((k) => counts[k] > 0).map((k) => ({ k, label: statusLabel(k, true), count: counts[k] })),
   ];
   const visible = filter === "all" ? evals.filter((e) => e.status !== "warn" || showUnlikely) : evals.filter((e) => e.status === filter);
   // Unverified schemes are left out of the criteria summary: their rules were never checked.
-  const checked = evals.filter((e) => e.scheme.verified);
+  const checked = evals.filter((e) => e.verified);
   const totalCriteria = checked.reduce((n, e) => n + e.pips.length, 0);
   const met = checked.reduce((n, e) => n + e.met, 0);
   const unknown = checked.reduce((n, e) => n + e.pips.filter((p) => p === "unk").length, 0);
@@ -47,11 +56,11 @@ export default function Results() {
           <PrimaryLink to="/plan" className="rise d2">Build my document plan</PrimaryLink>
         </div>
 
-        {liveSearchFailed() && (
+        {(liveSearchFailed() || (live.active && live.sourceMode === "fallback")) && (
           <div role="status" className="hatch" style={{ display: "flex", alignItems: "center", gap: 14, padding: "16px 20px", borderRadius: 20, border: "1px solid var(--line-3)" }}>
             <TriangleAlert size={20} color="var(--warn-text)" aria-hidden style={{ flex: "none" }} />
             <span style={{ fontSize: 15 }}>
-              <strong style={{ fontWeight: 600 }}>Live search had trouble.</strong> Showing limited results. Schemes from fallback data are clearly tagged.
+              <strong style={{ fontWeight: 600 }}>Live search had trouble.</strong> Showing limited results. Schemes from fallback data are clearly tagged.{live.active && live.warnings.length > 0 && ` ${live.warnings[0]}`}
             </span>
           </div>
         )}
@@ -62,16 +71,16 @@ export default function Results() {
               <span style={{ fontSize: 15, fontWeight: 600 }}>Status breakdown</span>
               <span className="mono" style={{ fontSize: 12, color: "var(--faint)" }}>{evals.length} SCHEMES</span>
             </div>
-            <div style={{ display: "flex", gap: 4 }} role="img" aria-label={`${counts.ok} potential match, ${counts.info} need more info, ${counts.nv} not yet verified, ${counts.warn} unlikely`}>
+            <div style={{ display: "flex", gap: 4 }} role="img" aria-label={`${counts.ok} potential match, ${counts.info} need more info, ${counts.nv + counts.unclear} not verified or uncertain, ${counts.warn} unlikely`}>
               <div className="seg s1" style={{ flex: counts.ok, background: "var(--primary)" }} />
               <div className="seg s2" style={{ flex: counts.info, background: "var(--secondary)" }} />
-              <div className="seg s3 hatch" style={{ flex: counts.nv, border: "1px dashed var(--line-4)" }} />
+              <div className="seg s3 hatch" style={{ flex: counts.nv + counts.unclear, border: "1px dashed var(--line-4)" }} />
               <div className="seg s4" style={{ flex: counts.warn, background: "var(--warn)" }} />
             </div>
             <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 13, color: "var(--muted)" }}>
               <LegendItem color="var(--primary-dark)">{counts.ok} match</LegendItem>
               <LegendItem color="var(--secondary-dark)">{counts.info} need info</LegendItem>
-              <LegendItem dashed>{counts.nv} unverified</LegendItem>
+              <LegendItem dashed>{counts.nv + counts.unclear} unverified</LegendItem>
               <LegendItem color="var(--warn-text)">{counts.warn} unlikely</LegendItem>
             </div>
           </div>
@@ -130,7 +139,7 @@ export default function Results() {
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(460px, 100%), 1fr))", gap: 14 }}>
           {visible.map((e, i) => (
-            <SchemeCard key={e.scheme.id} ev={e} delay={Math.min(i + 1, 6)} />
+            <SchemeCard key={e.id} s={e} delay={Math.min(i + 1, 6)} onOpen={() => live.select(e.id)} />
           ))}
         </div>
 
@@ -167,8 +176,8 @@ function LegendItem({ color, dashed, children }: { color?: string; dashed?: bool
   );
 }
 
-function SchemeCard({ ev, delay }: { ev: EvaluatedScheme; delay: number }) {
-  const { scheme: s, status, pips, met, missing, expl } = ev;
+function SchemeCard({ s, delay, onOpen }: { s: SchemeVM; delay: number; onOpen: () => void }) {
+  const { status, pips, met, missing, expl } = s;
   return (
     <article className={`card scard rise d${delay}`}>
       <div className="row-between" style={{ alignItems: "flex-start", gap: 12 }}>
@@ -177,12 +186,12 @@ function SchemeCard({ ev, delay }: { ev: EvaluatedScheme; delay: number }) {
           <h2 className="serif" style={{ fontSize: 24, lineHeight: 1.05 }}>{s.name}</h2>
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-          <OutcomeSourceBadge type={s.sourceType} />
+          <OutcomeSourceBadge type={s.sourceType} label={s.sourceType === "verified" && !s.verified ? "Official source · rules unverified" : undefined} />
           <StatusBadge status={status} />
         </div>
       </div>
       <p style={{ fontSize: 16, color: "var(--text-2)" }}>{s.summary}</p>
-      <p className="clamp" style={{ fontSize: 15, color: "var(--faint)" }}>{expl}</p>
+      {expl && <p className="clamp" style={{ fontSize: 15, color: "var(--faint)" }}>{expl}</p>}
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <div style={{ display: "flex", gap: 4 }} aria-hidden>
           {pips.map((p, i) => <span key={i} className={`pip p-${p}`} />)}
@@ -200,9 +209,9 @@ function SchemeCard({ ev, delay }: { ev: EvaluatedScheme; delay: number }) {
       <div className="row-between" style={{ gap: 12, paddingTop: 14, borderTop: "1px solid var(--line-2)", marginTop: "auto" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <SourceLink href={s.url}>Official source</SourceLink>
-          <span className="mono" style={{ fontSize: 11, color: "var(--faintest)" }}>{s.lastVerified}</span>
+          {s.lastVerified && <span className="mono" style={{ fontSize: 11, color: "var(--faintest)" }}>{s.lastVerified}</span>}
         </div>
-        <Link className="btn-ghost" to="/scheme">View details</Link>
+        <Link className="btn-ghost" to="/scheme" onClick={onOpen}>View details</Link>
       </div>
     </article>
   );

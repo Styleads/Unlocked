@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { BackLink, FlowHeader, PrimaryLink } from "../ui";
 import { useSession } from "../session";
 import type { Details as DetailsT } from "../session";
+import { EDU_OPTIONS } from "../data";
 
 const NEXT = [
   "Discover relevant government schemes",
@@ -66,11 +67,7 @@ export default function Details() {
           <Field id="f-edu" label="Education level" hint="Scholarships are usually tied to a course level.">
             <Select id="f-edu" value={d.edu} onChange={set("edu")}>
               <option value="">Choose one</option>
-              <option value="10">Class 10</option>
-              <option value="12">Class 12 / PUC</option>
-              <option value="diploma">Diploma</option>
-              <option value="ug">Undergraduate</option>
-              <option value="pg">Postgraduate</option>
+              {EDU_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </Select>
           </Field>
 

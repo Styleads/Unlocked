@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, RotateCcw } from "lucide-react";
 import { ArrowChip, FlowHeader, PrimaryLink } from "../ui";
-import { Link } from "../router";
+import { useRouter } from "../router";
 import { SCHEMES } from "../data";
+import { useSession } from "../session";
+import { useLive } from "../live";
 
 const LABELS = ["Searching official sources", "Reading eligibility rules", "Checking against your answers"];
 const PHASE_TIMES = [1700, 3500, 5200];
@@ -11,14 +13,33 @@ const PHASE_TIMES = [1700, 3500, 5200];
 const startsInError = () => new URLSearchParams(window.location.search).has("error");
 
 export default function Discovering() {
+  const { session } = useSession();
+  const live = useLive();
+  const { navigate } = useRouter();
   const [phase, setPhase] = useState(0);
   const [error, setError] = useState(startsInError);
+  const [errorDetail, setErrorDetail] = useState("");
   const timers = useRef<number[]>([]);
+  // run() must stay stable: the latest session and live store are read through refs
+  const latest = useRef({ session, live });
+  latest.current = { session, live };
 
-  const run = useCallback(() => {
+  const run = useCallback((force = false) => {
     timers.current.forEach(clearTimeout);
     setPhase(0);
-    timers.current = PHASE_TIMES.map((ms, i) => window.setTimeout(() => setPhase(i + 1), ms));
+    setErrorDetail("");
+    // With a backend the work really happens in one request: the first step shows as running until it
+    // returns, then every step completes together. Nothing is marked done before the backend says so.
+    void latest.current.live.discover(latest.current.session, force).then((r) => {
+      if (r.ok) return setPhase(3);
+      if (r.reason === "unreachable") {
+        // No backend: play the demo sequence on the built-in data.
+        timers.current = PHASE_TIMES.map((ms, i) => window.setTimeout(() => setPhase(i + 1), ms));
+        return;
+      }
+      setErrorDetail(r.message);
+      setError(true);
+    });
   }, []);
 
   useEffect(() => {
@@ -26,7 +47,8 @@ export default function Discovering() {
     return () => timers.current.forEach(clearTimeout);
   }, [error, run]);
 
-  const retry = () => (error ? setError(false) : run());
+  const retry = () => (error ? setError(false) : run(true));
+  const found = live.active ? live.schemes.length : SCHEMES.length;
   const done = !error && phase >= 3;
 
   return (
@@ -43,12 +65,22 @@ export default function Discovering() {
             <p className="lede rise d2" style={{ maxWidth: 440 }}>
               This is usually temporary. Your details are saved, so trying again won't ask you anything twice.
             </p>
+            {errorDetail && <p className="mono" style={{ fontSize: 12, color: "var(--faint)", maxWidth: 440 }}>{errorDetail}</p>}
             <div className="rise d3" style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               <button className="btn" onClick={retry}>
                 Try again
                 <ArrowChip icon={<RotateCcw size={16} strokeWidth={2.2} aria-hidden />} />
               </button>
-              <Link className="btn-ghost" to="/questions" style={{ minHeight: 52 }}>Use demo data</Link>
+              <button
+                className="btn-ghost"
+                style={{ minHeight: 52 }}
+                onClick={() => {
+                  void live.leave();
+                  navigate("/questions");
+                }}
+              >
+                Use demo data
+              </button>
             </div>
           </div>
         ) : (
@@ -92,11 +124,12 @@ export default function Discovering() {
               style={{ padding: 20, borderRadius: 22, background: "var(--surface)", border: "1px solid var(--line-3)", boxShadow: "var(--shadow-sm)", visibility: done ? "visible" : "hidden" }}
             >
               <div className="stack" style={{ gap: 2 }}>
-                <span style={{ fontSize: 17, fontWeight: 600 }}>{SCHEMES.length} potential schemes identified.</span>
+                <span style={{ fontSize: 17, fontWeight: 600 }}>{found} potential {found === 1 ? "scheme" : "schemes"} identified.</span>
                 <span style={{ fontSize: 15, color: "var(--muted)" }}>Answer a few questions to narrow down your matches and check your eligibility.</span>
               </div>
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                <button className="btn-ghost" onClick={run}>Replay</button>
+                {/* Replay is a demo nicety; a real search is not repeated for show */}
+                {!live.active && <button className="btn-ghost" onClick={() => run()}>Replay</button>}
                 <PrimaryLink to="/questions">Continue</PrimaryLink>
               </div>
             </div>

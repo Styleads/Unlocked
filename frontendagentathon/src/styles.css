@@ -861,3 +861,8 @@ textarea.inp { padding: 14px 16px; min-height: 112px; resize: vertical; }
 .nx-seg button.on[data-stage="submitted"] { background: var(--secondary-soft); color: var(--secondary-dark); box-shadow: inset 0 0 0 1px var(--secondary); }
 .nx-seg button.on[data-stage="approved"] { background: var(--primary-soft); color: var(--primary-dark); box-shadow: inset 0 0 0 1px var(--primary); }
 .nx-seg button.on[data-stage="received"] { background: var(--primary); color: var(--on-accent); }
+/* Long names in the dependency graph: clip with an ellipsis instead of overflowing the node. */
+.node .nlabel { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* On a phone the diagram would shrink to unreadable text; each document card already lists its schemes. */
+@media (max-width: 520px) { .plan-aside > .card:first-child { display: none; } }

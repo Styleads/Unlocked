@@ -1,4 +1,7 @@
 import { useState } from "react";
+import { useLive } from "../live";
+import { fromApiScheme } from "../model";
+import type { ApiRequirement } from "../api";
 import type { ReactNode } from "react";
 import { ArrowRight, Check, CircleAlert, X, ShieldCheck } from "lucide-react";
 import { ArrowChip, BackLink, Disclaimer, FlowHeader, OutcomeSourceBadge, SourceLink, StatusBadge } from "../ui";
@@ -27,7 +30,7 @@ const STEPS = [
   "Track your application status on the portal.",
 ];
 
-export default function Scheme() {
+function DemoScheme() {
   const { session, update } = useSession();
   const income = session.answers.income;
   // Shares the income answer with the Questions step, so answering in either place counts.
@@ -222,6 +225,141 @@ function Criterion({ rule, result, reason, clause }: { rule: string; result: Rea
       </div>
       <span style={{ fontSize: 14, color: "var(--faint)" }}>{reason}</span>
       <SourceLink href={NOTICE}>example.gov.in · notice, clause {clause}</SourceLink>
+    </div>
+  );
+}
+
+export default function Scheme() {
+  const live = useLive();
+  return live.active ? <LiveScheme /> : <DemoScheme />;
+}
+
+const CHIP: Record<ApiRequirement["status"], { cls: string; text: string }> = {
+  satisfied: { cls: "rchip r-ok pop", text: "Meets" },
+  not_satisfied: { cls: "rchip r-no pop", text: "Doesn't appear to meet" },
+  unknown: { cls: "rchip r-unk hatch pop", text: "? Not answered yet" },
+  needs_clarification: { cls: "rchip r-unk hatch pop", text: "? Needs clarification" },
+  unverified: { cls: "rchip r-unk hatch pop", text: "Not verified yet" },
+};
+
+/** A scheme the backend found: every field comes from its official-source record and the current assessment. */
+function LiveScheme() {
+  const live = useLive();
+  const raw = live.schemes.find((s) => s.id === live.selected) ?? live.schemes[0];
+  if (!raw) {
+    return (
+      <div className="page">
+        <FlowHeader current={3} />
+        <main className="main wide"><BackLink to="/results">Back to results</BackLink><p>No scheme selected.</p></main>
+        <Disclaimer />
+      </div>
+    );
+  }
+  const vm = fromApiScheme(raw);
+  const benefit = typeof raw.benefit === "string" ? raw.benefit : "";
+  const unverified = raw.assessment_status === "not_yet_verified";
+
+  return (
+    <div className="page">
+      <FlowHeader current={3} />
+      <main className="main wide" style={{ paddingTop: 36, paddingBottom: 72 }}>
+        <div style={{ alignSelf: "flex-start" }}><BackLink to="/results">Back to results</BackLink></div>
+
+        <div className="stack" style={{ gap: 16 }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            {vm.dept && <span className="eyebrow rise">{vm.dept}</span>}
+            <OutcomeSourceBadge type={vm.sourceType} />
+          </div>
+          <div className="row-between" style={{ alignItems: "flex-end", gap: 20 }}>
+            <h1 className="serif rise d1" style={{ fontSize: "clamp(36px, 4.6vw, 64px)", lineHeight: 0.95 }}>{raw.name}</h1>
+            <div className="rise d2"><StatusBadge status={vm.status} large /></div>
+          </div>
+          {raw.summary && <p className="lede rise d2" style={{ maxWidth: 720 }}>{raw.summary}</p>}
+        </div>
+
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 40, alignItems: "flex-start" }}>
+          <div className="stack" style={{ flex: "999 1 640px", minWidth: 0 }}>
+            <Section n="01" title="Why this status" className="rise d2">
+              <p style={{ fontSize: 16, color: "var(--text-2)", textWrap: "pretty" }}>{raw.assessment_explanation}</p>
+            </Section>
+
+            <Section n="02" title="Criteria" className="rise d3">
+              {raw.requirements.length === 0 && <p style={{ fontSize: 15, color: "var(--muted)" }}>No criteria were found for this scheme.</p>}
+              {raw.requirements.map((r) => (
+                <div key={r.requirement_id} className="crit">
+                  <div className="row-between" style={{ gap: 12, alignItems: "flex-start" }}>
+                    <span style={{ fontSize: 16 }}>“{r.criterion}”</span>
+                    <span className={CHIP[r.status].cls}>{CHIP[r.status].text}</span>
+                  </div>
+                  <span style={{ fontSize: 14, color: "var(--faint)" }}>{r.reason}</span>
+                  {r.source_url ? <SourceLink href={r.source_url}>{r.source_url.replace(/^https?:\/\//, "")}</SourceLink> : <span className="unsrc">SOURCE NOT CONFIRMED</span>}
+                </div>
+              ))}
+            </Section>
+
+            {benefit && !unverified && (
+              <Section n="03" title="Benefit">
+                <p style={{ fontSize: 15, color: "var(--text-2)" }}>{benefit}</p>
+              </Section>
+            )}
+
+            <Section n="04" title="Documents" gap={0}>
+              {raw.documents.length === 0 && <p style={{ fontSize: 15, color: "var(--muted)" }}>No document list was confirmed from an official source.</p>}
+              {raw.documents.map((d) => (
+                <div key={d.name} className="list-row">
+                  <span style={{ fontSize: 16 }}>{d.name}</span>
+                  {d.source_url ? <a className="src" href={d.source_url} target="_blank" rel="noopener noreferrer">Source</a> : <span className="unsrc">SOURCE NOT CONFIRMED</span>}
+                </div>
+              ))}
+            </Section>
+
+            {raw.application_steps.length > 0 && (
+              <Section n="05" title="How to apply">
+                <ol className="stack" style={{ margin: 0, padding: 0, listStyle: "none" }}>
+                  {raw.application_steps.map((t, i) => (
+                    <li key={t} style={{ display: "flex", gap: 16, alignItems: "baseline", padding: "12px 0", borderBottom: i < raw.application_steps.length - 1 ? "1px solid var(--line-2)" : 0 }}>
+                      <span className="mono" style={{ fontSize: 13, color: "var(--primary-dark)", fontWeight: 600 }}>{String(i + 1).padStart(2, "0")}</span>
+                      <span style={{ color: "var(--text-2)" }}>{t}</span>
+                    </li>
+                  ))}
+                </ol>
+                {raw.application_url && (
+                  <a className="btn" href={raw.application_url} target="_blank" rel="noopener noreferrer" style={{ alignSelf: "flex-start" }}>
+                    Open official application page
+                    <ArrowChip />
+                  </a>
+                )}
+              </Section>
+            )}
+
+            <Section n="06" title="Official sources" gap={4}>
+              {raw.official_sources.length === 0 && <p style={{ fontSize: 15, color: "var(--muted)" }}>No official source was recorded.</p>}
+              {raw.official_sources.map((u) => <SourceLink key={u} href={u}>{u.replace(/^https?:\/\//, "")}</SourceLink>)}
+            </Section>
+          </div>
+
+          <aside className="stack rise d3" style={{ flex: "1 1 340px", gap: 14 }}>
+            {vm.missing.length > 0 && (
+              <div className="card stack" style={{ padding: 24, gap: 12 }}>
+                <span className="label">STILL MISSING</span>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{vm.missing.map((m) => <span key={m} className="miss">{m}</span>)}</div>
+                <Link to="/questions" className="btn" style={{ alignSelf: "flex-start" }}>
+                  Answer questions
+                  <ArrowChip />
+                </Link>
+              </div>
+            )}
+            <Link to="/plan" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, padding: "20px 22px", borderRadius: 22, border: "1px solid var(--line-2)", textDecoration: "none", color: "var(--text)", background: "var(--surface)", boxShadow: "var(--shadow-sm)" }}>
+              <span className="stack" style={{ gap: 2 }}>
+                <span style={{ fontSize: 15, fontWeight: 600 }}>See it in your document plan</span>
+                <span style={{ fontSize: 14, color: "var(--faint)" }}>{raw.documents.length} {raw.documents.length === 1 ? "document" : "documents"} listed</span>
+              </span>
+              <ArrowRight size={18} color="var(--primary-dark)" aria-hidden />
+            </Link>
+          </aside>
+        </div>
+      </main>
+      <Disclaimer />
     </div>
   );
 }

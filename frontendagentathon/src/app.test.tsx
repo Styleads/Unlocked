@@ -10,6 +10,8 @@ beforeAll(() => {
   (globalThis as unknown as Record<string, unknown>).ResizeObserver = Obs;
   (globalThis as unknown as Record<string, unknown>).IntersectionObserver = Obs;
   window.scrollTo = (() => {}) as typeof window.scrollTo;
+  // These tests run the demo path: the backend must look unreachable even if one is running locally.
+  globalThis.fetch = (() => Promise.reject(new TypeError("offline"))) as typeof fetch;
   // Node 25 ships its own half-working localStorage that shadows jsdom's; use a plain in-memory Storage.
   for (const key of ["localStorage", "sessionStorage"] as const) {
     const m = new Map<string, string>();

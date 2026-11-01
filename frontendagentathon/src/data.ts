@@ -3,7 +3,16 @@
 export const CATEGORIES = ["Scholarships", "Fee concessions", "Healthcare", "Pensions", "Subsidies"] as const;
 export type Category = (typeof CATEGORIES)[number];
 
-export type Status = "ok" | "info" | "nv" | "unclear" | "warn";
+/** Education levels as the Context form shows them, with the value the backend expects. */
+export const EDU_OPTIONS = [
+  { value: "10", label: "Class 10", api: "Class 10" },
+  { value: "12", label: "Class 12 / PUC", api: "Class 12" },
+  { value: "diploma", label: "Diploma", api: "Diploma" },
+  { value: "ug", label: "Undergraduate", api: "Undergraduate" },
+  { value: "pg", label: "Postgraduate", api: "Postgraduate" },
+] as const;
+
+export type Status ="ok" | "info" | "nv" | "unclear" | "warn";
 export type Pip = "ok" | "no" | "unk" | "unv";
 export type SourceType = "verified" | "fallback" | "user-reported" | "simulated";
 
