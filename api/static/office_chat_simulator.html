@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Unlocked — Office Communication Simulator (WhatsApp-Style Demo)</title>
+  <style>
+    :root {
+      --wa-dark-green: #075e54;
+      --wa-teal: #128c7e;
+      --wa-light-green: #25d366;
+      --wa-outgoing: #d9fdd3;
+      --wa-incoming: #ffffff;
+      --wa-bg: #efeae2;
+      --wa-text: #111b21;
+      --wa-muted: #667781;
+      --wa-blue: #027eb5;
+      --wa-warning: #f59e0b;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    body {
+      background-color: #d1d7db;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      padding: 12px;
+    }
+
+    .simulation-banner {
+      background-color: #fef3c7;
+      border: 1px solid #f59e0b;
+      color: #92400e;
+      padding: 8px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      text-align: center;
+      border-radius: 6px;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .app-container {
+      width: 100%;
+      max-width: 900px;
+      height: 92vh;
+      background: #ffffff;
+      border-radius: 10px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* Controls Panel */
+    .controls-panel {
+      background: #f0f2f5;
+      padding: 12px 16px;
+      border-bottom: 1px solid #e9edef;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      font-size: 13px;
+    }
+
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .control-group label {
+      font-weight: 600;
+      color: #3b4a54;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .control-group select,
+    .control-group input {
+      padding: 6px 10px;
+      border: 1px solid #d1d7db;
+      border-radius: 6px;
+      background: #ffffff;
+      font-size: 13px;
+      color: #111b21;
+    }
+
+    .control-checkbox {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 14px;
+      font-size: 12px;
+      color: #3b4a54;
+      font-weight: 500;
+    }
+
+    .btn {
+      padding: 8px 14px;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s, opacity 0.2s;
+    }
+
+    .btn-primary {
+      background-color: var(--wa-teal);
+      color: #ffffff;
+    }
+
+    .btn-primary:hover {
+      background-color: var(--wa-dark-green);
+    }
+
+    .btn-secondary {
+      background-color: #ffffff;
+      border: 1px solid #d1d7db;
+      color: #3b4a54;
+    }
+
+    .btn-secondary:hover {
+      background-color: #e9edef;
+    }
+
+    .btn-success {
+      background-color: #059669;
+      color: #ffffff;
+    }
+
+    .btn-success:hover {
+      background-color: #047857;
+    }
+
+    .btn-danger {
+      background-color: #dc2626;
+      color: #ffffff;
+    }
+
+    /* WhatsApp Header */
+    .chat-header {
+      background: var(--wa-dark-green);
+      color: #ffffff;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .header-profile {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .header-avatar {
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      background: #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      color: var(--wa-dark-green);
+      font-size: 18px;
+    }
+
+    .header-details h3 {
+      font-size: 15px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .header-details p {
+      font-size: 12px;
+      opacity: 0.85;
+    }
+
+    .header-badge {
+      background: #f59e0b;
+      color: #111b21;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 4px 8px;
+      border-radius: 12px;
+      letter-spacing: 0.5px;
+    }
+
+    /* Chat Messages Viewport */
+    .chat-viewport {
+      flex: 1;
+      background-color: var(--wa-bg);
+      background-image: radial-gradient(#d1d7db 1px, transparent 1px);
+      background-size: 20px 20px;
+      padding: 16px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .message-row {
+      display: flex;
+      width: 100%;
+    }
+
+    .message-row.outgoing {
+      justify-content: flex-end;
+    }
+
+    .message-row.incoming {
+      justify-content: flex-start;
+    }
+
+    .message-bubble {
+      max-width: 75%;
+      padding: 8px 12px;
+      border-radius: 8px;
+      position: relative;
+      box-shadow: 0 1px 1px rgba(0,0,0,0.1);
+      font-size: 14px;
+      line-height: 1.45;
+      color: var(--wa-text);
+      word-break: break-word;
+    }
+
+    .message-row.outgoing .message-bubble {
+      background: var(--wa-outgoing);
+      border-top-right-radius: 0;
+    }
+
+    .message-row.incoming .message-bubble {
+      background: var(--wa-incoming);
+      border-top-left-radius: 0;
+    }
+
+    .message-author {
+      font-size: 11px;
+      font-weight: 700;
+      margin-bottom: 2px;
+    }
+
+    .message-row.outgoing .message-author {
+      color: var(--wa-teal);
+    }
+
+    .message-row.incoming .message-author {
+      color: #c2410c;
+    }
+
+    .message-meta {
+      font-size: 10px;
+      color: var(--wa-muted);
+      text-align: right;
+      margin-top: 4px;
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 4px;
+    }
+
+    /* Action Cards inside Chat */
+    .action-card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-left: 4px solid var(--wa-teal);
+      border-radius: 6px;
+      padding: 12px 14px;
+      margin-top: 8px;
+      font-size: 13px;
+    }
+
+    .action-card h4 {
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 4px;
+      color: #1e293b;
+    }
+
+    .action-card p {
+      color: #475569;
+      margin-bottom: 8px;
+      line-height: 1.4;
+    }
+
+    .action-card .card-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    /* Chat Footer Controls */
+    .chat-footer {
+      background: #f0f2f5;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-top: 1px solid #e9edef;
+      font-size: 13px;
+    }
+
+    .status-indicator {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+      color: #3b4a54;
+    }
+
+    .status-pill {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .status-in_progress { background: #dbeafe; color: #1e40af; }
+    .status-appointment_offered { background: #fef3c7; color: #92400e; }
+    .status-awaiting_user_input { background: #ffedd5; color: #c2410c; }
+    .status-simulated_confirmed { background: #dcfce7; color: #15803d; }
+    .status-no_availability { background: #f1f5f9; color: #475569; }
+    .status-unable_to_resolve { background: #fee2e2; color: #b91c1c; }
+
+    .footer-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid rgba(0,0,0,0.1);
+      border-left-color: var(--wa-teal);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+
+<div style="width: 100%; max-width: 900px;">
+  <div class="simulation-banner">
+    <span>⚠️</span>
+    <span><strong>IN-WEBSITE SIMULATION DEMO:</strong> This interface simulates communication between Unlocked Assistant and a representative. No actual government office is contacted and no real appointment is booked.</span>
+  </div>
+
+  <div class="app-container">
+    <!-- Controls Header -->
+    <div class="controls-panel">
+      <div class="control-group">
+        <label for="scenarioSelect">Demo Scenario</label>
+        <select id="scenarioSelect">
+          <option value="scenario_a_success">Scenario A: Successful Appointment & Confirmation</option>
+          <option value="scenario_b_no_availability">Scenario B: No Available Slots</option>
+          <option value="scenario_c_missing_info">Scenario C: Missing Info & WhatsApp Handoff</option>
+          <option value="scenario_d_unclear_unsupported">Scenario D: Unsupported Channel Enquiry</option>
+        </select>
+      </div>
+
+      <div class="control-group">
+        <label for="daysInput">Preferred Days</label>
+        <input type="text" id="daysInput" value="Monday, Tuesday" style="width: 140px;">
+      </div>
+
+      <div class="control-group">
+        <label for="windowSelect">Time Window</label>
+        <select id="windowSelect">
+          <option value="10:00-13:00">Morning (10:00 – 13:00)</option>
+          <option value="14:00-17:00">Afternoon (14:00 – 17:00)</option>
+          <option value="10:00-17:30">Anytime Office Hours</option>
+        </select>
+      </div>
+
+      <div class="control-checkbox">
+        <input type="checkbox" id="preAuthCheckbox" checked>
+        <label for="preAuthCheckbox">Pre-authorize confirmation</label>
+      </div>
+
+      <button id="startChatBtn" class="btn btn-primary" style="margin-top: 14px;">Start Simulated Enquiry</button>
+      <button id="resetChatBtn" class="btn btn-secondary" style="margin-top: 14px;">Reset</button>
+    </div>
+
+    <!-- WhatsApp Chat Header -->
+    <div class="chat-header">
+      <div class="header-profile">
+        <div class="header-avatar" id="officeAvatar">SW</div>
+        <div class="header-details">
+          <h3 id="officeTitle">Social Welfare Department Helpdesk</h3>
+          <p id="officeSubtitle">Karnataka Government Official Portal Verification Desk • 080-22634300</p>
+        </div>
+      </div>
+      <div class="header-badge">SIMULATION DEMO</div>
+    </div>
+
+    <!-- Messages Container -->
+    <div class="chat-viewport" id="chatViewport">
+      <!-- Default Welcome State -->
+      <div style="text-align: center; color: var(--wa-muted); margin: auto; max-width: 420px; font-size: 13px; line-height: 1.5;">
+        <p><strong>Office Communication Simulator</strong></p>
+        <p style="margin-top: 4px;">Choose your appointment preferences and click <strong>Start Simulated Enquiry</strong> to watch the Action Agent negotiate with the simulated representative.</p>
+      </div>
+    </div>
+
+    <!-- Chat Footer -->
+    <div class="chat-footer">
+      <div class="status-indicator">
+        <span>Status:</span>
+        <span class="status-pill status-in_progress" id="statusPill">READY</span>
+      </div>
+
+      <div class="footer-actions">
+        <button id="advanceTurnBtn" class="btn btn-primary" style="display: none;">Next Turn ➔</button>
+        <button id="autoPlayBtn" class="btn btn-secondary" style="display: none;">Auto-Play</button>
+        <button id="downloadIcsBtn" class="btn btn-success" style="display: none;">Download .ics</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  let currentSessionId = null;
+  let currentChatId = null;
+  let isAutoPlaying = false;
+  let isBusy = false;
+
+  const defaultSchemeId = "fallback-ssp-scst-001";
+
+  // Elements
+  const chatViewport = document.getElementById("chatViewport");
+  const scenarioSelect = document.getElementById("scenarioSelect");
+  const daysInput = document.getElementById("daysInput");
+  const windowSelect = document.getElementById("windowSelect");
+  const preAuthCheckbox = document.getElementById("preAuthCheckbox");
+  const startChatBtn = document.getElementById("startChatBtn");
+  const resetChatBtn = document.getElementById("resetChatBtn");
+  const advanceTurnBtn = document.getElementById("advanceTurnBtn");
+  const autoPlayBtn = document.getElementById("autoPlayBtn");
+  const downloadIcsBtn = document.getElementById("downloadIcsBtn");
+  const statusPill = document.getElementById("statusPill");
+
+  async function ensureSession() {
+    if (currentSessionId) return currentSessionId;
+    const res = await fetch("/api/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ context: { occupation: "student", state: "Karnataka" }, scope: "all" })
+    });
+    const data = await res.json();
+    currentSessionId = data.session_id;
+    return currentSessionId;
+  }
+
+  function updateStatus(status) {
+    statusPill.textContent = status.replace(/_/g, " ").toUpperCase();
+    statusPill.className = "status-pill status-" + status;
+  }
+
+  function appendMessage(sender, text, turnIndex) {
+    const isOutgoing = sender === "unlocked";
+    const row = document.createElement("div");
+    row.className = "message-row " + (isOutgoing ? "outgoing" : "incoming");
+
+    const bubble = document.createElement("div");
+    bubble.className = "message-bubble";
+
+    const author = document.createElement("div");
+    author.className = "message-author";
+    author.textContent = isOutgoing ? "Unlocked Assistant" : "Simulated Office Representative";
+
+    const content = document.createElement("div");
+    content.textContent = text;
+
+    const meta = document.createElement("div");
+    meta.className = "message-meta";
+    meta.textContent = "Turn " + turnIndex + " • Just now";
+
+    bubble.appendChild(author);
+    bubble.appendChild(content);
+    bubble.appendChild(meta);
+    row.appendChild(bubble);
+    chatViewport.appendChild(row);
+    chatViewport.scrollTop = chatViewport.scrollHeight;
+  }
+
+  function renderActionCard(title, description, buttons) {
+    const card = document.createElement("div");
+    card.className = "action-card";
+
+    const heading = document.createElement("h4");
+    heading.textContent = title;
+    card.appendChild(heading);
+
+    const desc = document.createElement("p");
+    desc.textContent = description;
+    card.appendChild(desc);
+
+    const btnContainer = document.createElement("div");
+    btnContainer.className = "card-actions";
+    buttons.forEach(b => {
+      const btn = document.createElement("button");
+      btn.className = "btn " + (b.className || "btn-primary");
+      btn.textContent = b.text;
+      btn.onclick = b.onClick;
+      btnContainer.appendChild(btn);
+    });
+    card.appendChild(btnContainer);
+
+    chatViewport.appendChild(card);
+    chatViewport.scrollTop = chatViewport.scrollHeight;
+  }
+
+  startChatBtn.onclick = async () => {
+    if (isBusy) return;
+    isBusy = true;
+    startChatBtn.disabled = true;
+
+    try {
+      const sessionId = await ensureSession();
+      chatViewport.innerHTML = "";
+
+      const [startW, endW] = windowSelect.value.split("-");
+      const payload = {
+        scheme_id: defaultSchemeId,
+        scenario_id: scenarioSelect.value,
+        preferred_days: daysInput.value.split(",").map(d => d.trim()),
+        preferred_windows: [{ start: startW, end: endW }],
+        pre_authorized_confirmation: preAuthCheckbox.checked
+      };
+
+      const res = await fetch(`/api/sessions/${sessionId}/office-chats`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      currentChatId = data.chat_id;
+
+      updateStatus(data.chat_status);
+      if (data.messages && data.messages.length > 0) {
+        appendMessage(data.messages[0].sender, data.messages[0].message_text, data.messages[0].turn_index);
+      }
+
+      advanceTurnBtn.style.display = "inline-block";
+      autoPlayBtn.style.display = "inline-block";
+      downloadIcsBtn.style.display = "none";
+    } catch (e) {
+      alert("Error starting simulated chat: " + e.message);
+    } finally {
+      isBusy = false;
+      startChatBtn.disabled = false;
+    }
+  };
+
+  async function advanceTurn() {
+    if (!currentChatId || isBusy) return;
+    isBusy = true;
+
+    try {
+      const res = await fetch(`/api/office-chats/${currentChatId}/advance`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scenario_id: scenarioSelect.value })
+      });
+      const data = await res.json();
+
+      // Render new messages
+      const renderedCount = chatViewport.querySelectorAll(".message-row").length;
+      if (data.messages && data.messages.length > renderedCount) {
+        for (let i = renderedCount; i < data.messages.length; i++) {
+          appendMessage(data.messages[i].sender, data.messages[i].message_text, data.messages[i].turn_index);
+        }
+      }
+
+      updateStatus(data.appointment_status !== "not_requested" ? data.appointment_status : data.chat_status);
+
+      // Handle Awaiting User Approval (Scenario A without pre-auth)
+      if (data.appointment_status === "awaiting_user_approval") {
+        renderActionCard(
+          "Citizen Approval Required",
+          `Representative confirmed slot for ${data.appointment?.date || 'Monday'} at ${data.appointment?.time || '11:00 AM'}. Do you authorize final confirmation?`,
+          [
+            {
+              text: "Approve & Confirm Slot",
+              className: "btn-success",
+              onClick: async () => {
+                await fetch(`/api/office-chats/${currentChatId}/user-input`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ action: "approve_slot", user_approved_slot: true })
+                });
+                advanceTurn();
+              }
+            },
+            {
+              text: "Decline Slot",
+              className: "btn-danger",
+              onClick: async () => {
+                await fetch(`/api/office-chats/${currentChatId}/user-input`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ action: "approve_slot", user_approved_slot: false })
+                });
+                advanceTurn();
+              }
+            }
+          ]
+        );
+      }
+
+      // Handle Unresolved Question & WhatsApp Handoff (Scenario C)
+      if (data.unresolved_questions && data.unresolved_questions.length > 0) {
+        const uq = data.unresolved_questions[data.unresolved_questions.length - 1];
+        if (uq.click_to_chat_url) {
+          renderActionCard(
+            "Official WhatsApp Handoff",
+            `The representative requested applicant credentials directly. Desk WhatsApp: ${uq.receiver_whatsapp_number || '+919845012345'}`,
+            [
+              {
+                text: "Open Pre-filled WhatsApp (wa.me)",
+                className: "btn-primary",
+                onClick: () => {
+                  window.open(uq.click_to_chat_url, "_blank");
+                }
+              }
+            ]
+          );
+        }
+      }
+
+      // Handle Confirmed
+      if (data.appointment_status === "simulated_confirmed") {
+        downloadIcsBtn.style.display = "inline-block";
+        downloadIcsBtn.onclick = () => {
+          window.location.href = `/api/office-chats/${currentChatId}/calendar/download`;
+        };
+        renderActionCard(
+          "Simulated Appointment Confirmed!",
+          `Confirmed: ${data.appointment?.date} at ${data.appointment?.time}. RFC 5545 calendar invite ready.`,
+          [
+            {
+              text: "Download Calendar Event (.ics)",
+              className: "btn-success",
+              onClick: () => {
+                window.location.href = `/api/office-chats/${currentChatId}/calendar/download`;
+              }
+            }
+          ]
+        );
+        advanceTurnBtn.style.display = "none";
+        autoPlayBtn.style.display = "none";
+      }
+
+      // Concluded states
+      if (["completed", "no_availability", "unable_to_resolve", "cancelled"].includes(data.chat_status)) {
+        advanceTurnBtn.style.display = "none";
+        autoPlayBtn.style.display = "none";
+      }
+    } catch (e) {
+      alert("Error advancing turn: " + e.message);
+    } finally {
+      isBusy = false;
+    }
+  }
+
+  advanceTurnBtn.onclick = advanceTurn;
+
+  autoPlayBtn.onclick = async () => {
+    isAutoPlaying = true;
+    autoPlayBtn.disabled = true;
+    while (isAutoPlaying && advanceTurnBtn.style.display !== "none") {
+      await advanceTurn();
+      await new Promise(r => setTimeout(r, 1200));
+    }
+    autoPlayBtn.disabled = false;
+    isAutoPlaying = false;
+  };
+
+  resetChatBtn.onclick = () => {
+    currentChatId = null;
+    isAutoPlaying = false;
+    chatViewport.innerHTML = `
+      <div style="text-align: center; color: var(--wa-muted); margin: auto; max-width: 420px; font-size: 13px; line-height: 1.5;">
+        <p><strong>Office Communication Simulator</strong></p>
+        <p style="margin-top: 4px;">Choose your appointment preferences and click <strong>Start Simulated Enquiry</strong> to begin.</p>
+      </div>
+    `;
+    advanceTurnBtn.style.display = "none";
+    autoPlayBtn.style.display = "none";
+    downloadIcsBtn.style.display = "none";
+    updateStatus("READY");
+  };
+</script>
+</body>
+</html>

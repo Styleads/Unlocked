@@ -17,6 +17,7 @@ from typing import Any, Optional
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Path as PathParam, Query, Response, status
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.database import (
@@ -1979,6 +1980,26 @@ async def api_create_office_chat(
     await add_office_chat_message(initial_msg)
 
     return _build_office_chat_view(chat_session, [initial_msg], [], next_action="wait_for_representative")
+
+
+@app.get(
+    "/office-chat-sim",
+    response_class=FileResponse,
+    tags=["Office Chat Simulator"],
+    summary="In-Browser WhatsApp-style Office Chat Simulator",
+)
+@app.get(
+    "/api/office-chats/simulator",
+    response_class=FileResponse,
+    tags=["Office Chat Simulator"],
+    summary="In-Browser WhatsApp-style Office Chat Simulator",
+)
+async def api_office_chat_simulator_ui():
+    """Serve the single-page WhatsApp-style interactive office chat simulator."""
+    ui_path = os.path.join(os.path.dirname(__file__), "static", "office_chat_simulator.html")
+    if not os.path.exists(ui_path):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Simulator UI not found.")
+    return FileResponse(ui_path, media_type="text/html")
 
 
 @app.get(

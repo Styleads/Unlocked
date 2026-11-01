@@ -271,3 +271,19 @@ async def test_simulated_appointment_notification_trigger(tmp_path, monkeypatch)
         assert sim_notif["recipient"] == "citizen@example.com"
         assert "[SIMULATED DEMO]" in sim_notif["subject"]
 
+
+@pytest.mark.asyncio
+async def test_office_chat_simulator_ui_endpoints():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        r1 = await client.get("/office-chat-sim")
+        assert r1.status_code == 200
+        assert "text/html" in r1.headers["content-type"]
+        assert "Unlocked — Office Communication Simulator" in r1.text
+        assert "WhatsApp-Style Demo" in r1.text
+
+        r2 = await client.get("/api/office-chats/simulator")
+        assert r2.status_code == 200
+        assert "text/html" in r2.headers["content-type"]
+
+
