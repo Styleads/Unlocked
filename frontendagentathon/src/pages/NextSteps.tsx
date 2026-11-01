@@ -278,7 +278,7 @@ function SchemeStep({
               <textarea id={`b-${id}`} className="inp" rows={14} value={body} onChange={(e) => setBody(e.target.value)} />
               <p style={{ fontSize: 13, color: "var(--faint)" }}>
                 {mailMeta
-                  ? `${mailMeta.by === "llm" ? "AI-assisted draft" : "Template draft"}. We don't send it. ${mailMeta.to ? `Official address: ${mailMeta.to}.` : "We don't know a confirmed address for this office, so add it in your email app."} Review it and replace any [placeholders] before sending.`
+                  ? `${mailMeta.by === "llm" ? "AI-assisted draft" : "Template draft"}. We don't send it. ${mailMeta.to ? `Official address: ${mailMeta.to}.` : "We don't know a confirmed address for this office, so add it in your email app."} Review it and fill in any placeholders, such as [Your name] or {{Name}}, before sending.`
                   : "Draft only. We don't send it and don't know the office's address, so add it in your email app. It includes no personal answers; replace [Your name] before sending."}
               </p>
               {mailMeta?.warnings.map((w) => <p key={w} style={{ fontSize: 13, color: "var(--warn-text)" }}>{w}</p>)}

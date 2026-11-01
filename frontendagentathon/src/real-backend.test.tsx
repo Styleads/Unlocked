@@ -35,7 +35,7 @@ describe.skipIf(!up)("real backend", () => {
     fireEvent.click(screen.getByRole("link", { name: /Find schemes/ }));
 
     // discovery really ran; answer whatever the backend asks, by input type, through the real UI
-    fireEvent.click(await screen.findByRole("link", { name: /Continue/ }, { timeout: 30000 }));
+    fireEvent.click(await screen.findByRole("link", { name: /Continue/ }, { timeout: 200000 }));
     await screen.findByRole("link", { name: /See my results/ });
     // Answer "Not sure" to the first question: it is a recorded response that keeps every scheme in play. (A real answer
     // can rule a scheme out, and then the backend rightly drops the questions that only it needed and plans no documents
@@ -67,5 +67,5 @@ describe.skipIf(!up)("real backend", () => {
     const g = screen.getAllByRole("group", { name: /Application progress for/ })[0];
     fireEvent.click(within(g).getByRole("button", { name: /Submitted/ }));
     await screen.findByText(/You reported that you submitted the application/, undefined, { timeout: 10000 });
-  }, 90000);
+  }, 300000); // a live search with real sources can take a minute or more
 });
