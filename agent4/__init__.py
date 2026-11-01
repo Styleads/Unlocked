@@ -6,6 +6,12 @@ from .calendar_ics import build_calendar_artifact
 from .clarify import ClarificationKind, ClarificationPoint, clarification_points, clarification_request
 from .email_draft import build_email_draft
 from .facts import facts_from_scheme
+from .office_chat_agent import (
+    build_initial_office_enquiry,
+    decide_chat_turn,
+    format_whatsapp_click_url,
+    normalize_phone_number,
+)
 from .office_chat_models import (
     AppointmentOffer,
     AppointmentStatus,
@@ -55,4 +61,6 @@ __all__ = [
     "ContactHandoff", "ContactSource", "OfficeChatMessage", "OfficeChatSession",
     "OfficeContact", "TimeWindow", "UnresolvedQuestion", "UnresolvedQuestionStatus",
     "UserAppointmentPreferences", "VerificationStatus",
+    "build_initial_office_enquiry", "decide_chat_turn", "format_whatsapp_click_url",
+    "normalize_phone_number",
 ]

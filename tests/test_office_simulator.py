@@ -144,3 +144,4 @@ def test_out_of_bounds_turn(simulator):
     )
     assert res.is_terminal is True
     assert "concluded" in res.message.lower()
+

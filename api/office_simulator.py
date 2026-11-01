@@ -228,3 +228,4 @@ class OfficeSimulatorService:
             is_terminal=meta.get("is_terminal", False),
             metadata=meta,
         )
+
