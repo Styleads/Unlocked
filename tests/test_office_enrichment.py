@@ -71,3 +71,4 @@ def test_scheme_view_exposes_office_contact():
     assert ssp_view.reception_number == "080-22634300"
     assert ssp_view.office_contact is not None
     assert ssp_view.office_contact["office_address"] == ssp_view.office_address
+
