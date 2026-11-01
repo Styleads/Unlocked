@@ -46,8 +46,11 @@ const PIP: Record<ApiRequirement["status"], Pip> = {
 /** "annual_family_income" -> "annual family income" */
 export const humanize = (attr: string) => attr.replace(/^unmapped:/, "").replace(/[_-]+/g, " ").trim();
 
+/** Only eligibility rules count towards "criteria met"; registration, document and post-approval steps do not. */
+export const isEligibilityRule = (r: ApiRequirement) => (r.category ?? "eligibility") === "eligibility";
+
 export function fromApiScheme(s: ApiScheme): SchemeVM {
-  const pips = s.requirements.map((r) => PIP[r.status] ?? "unk");
+  const pips = s.requirements.filter(isEligibilityRule).map((r) => PIP[r.status] ?? "unk");
   const fallback = s.source_type === "fallback";
   return {
     id: s.id,

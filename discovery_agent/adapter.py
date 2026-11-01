@@ -67,8 +67,9 @@ def _map_attribute(raw_attr: Optional[str], criterion_text: str = "") -> Optiona
             return resolved
 
     from member2.attributes import detect_state_in_text
+    from member2.normalize import is_portal_registration
     # NEVER map geographical conditions to unmapped:<state>
-    detected = detect_state_in_text(f"{raw_attr or ''} {criterion_text or ''}")
+    detected = detect_state_in_text(raw_attr or "")
     if detected:
         return "domicile_karnataka" if detected == "Karnataka" else "state"
 
@@ -83,10 +84,10 @@ def _map_attribute(raw_attr: Optional[str], criterion_text: str = "") -> Optiona
         detected_inner = detect_state_in_text(inner)
         if detected_inner:
             return "domicile_karnataka" if detected_inner == "Karnataka" else "state"
-        if any(w in inner for w in ("registered_", "registration", "vishwakarma")):
+        if is_portal_registration(inner):
             return "portal_registration"
         return raw_attr
-    if any(w in raw_attr.lower() for w in ("registered_", "registration", "vishwakarma")):
+    if is_portal_registration(raw_attr):
         return "portal_registration"
     return f"unmapped:{_clean_slug(raw_attr)}"
 

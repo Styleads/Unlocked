@@ -592,20 +592,19 @@ def test_existing_business_not_restricted_by_greenfield_rules():
 # Regression Test 11: Previous Loans Interactions Assessed
 # ---------------------------------------------------------------------------
 
-def test_previous_loans_interactions_assessed():
-    """11. Previous loans: Correctly assess scheme-specific interactions and restrictions."""
+def test_scheme_specific_policy_text_is_not_hard_coded():
+    """11. Real policy claims (loan look-back periods, one-per-family limits) must come from a scheme's own sourced rules,
+    never from code keyed on a scheme id: an answer about previous loans must not add unsourced text to the assessment."""
     scheme = make_pm_vishwakarma_scheme()
-
-    # User answered that they availed a government credit scheme in the past 5 years
     answers = as_answer_map({
         "occupation": {"attribute": "occupation", "state": "answered", "value": "Tailor"},
         "age": {"attribute": "age", "state": "answered", "value": 31},
         "previous_government_loan": {"attribute": "previous_government_loan", "state": "answered", "value": True},
+        "family_member_beneficiary": {"attribute": "family_member_beneficiary", "state": "answered", "value": True},
     })
-
     assessment = assess_scheme(scheme, answers)
-    assert "past 5 years" in assessment.explanation
-    assert "PMEGP, PM SVANidhi, or MUDRA" in assessment.explanation
+    for claim in ("past 5 years", "PMEGP", "SVANidhi", "MUDRA", "one member per family", "Interaction Notice"):
+        assert claim not in assessment.explanation
 
 
 # ---------------------------------------------------------------------------

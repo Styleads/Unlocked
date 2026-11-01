@@ -6,6 +6,7 @@ adhering strictly to docs/agents.md and plan.md.
 """
 from __future__ import annotations
 
+import re
 from datetime import date, time
 from typing import Any, Literal, Optional, Union
 from pydantic import BaseModel, ConfigDict, Field
@@ -180,10 +181,8 @@ class UserProfileInput(BaseModel):
             _add("domicile_karnataka", True)
             _add("domicile_state", "Karnataka")
         elif self.state:
-            _add("state", self.state)
-            _add("domicile_state", self.state)
+            _add("state", self.state)  # where they live is not where they are domiciled
 
-        _add("citizenship", "Indian")
         _add("district", self.district)
         _add("annual_family_income", self.annual_family_income or self.annual_income)
         _add("age", self.age)
@@ -196,12 +195,9 @@ class UserProfileInput(BaseModel):
         if not emp_status and self.occupation:
             occ_lower = self.occupation.lower().strip()
             if any(w in occ_lower for w in ("tailor", "artisan", "weaver", "craftsperson", "self-employed", "self employed", "carpenter", "blacksmith", "potter", "cobbler")):
-                emp_status = "Self-employed"
-                _add("business_ownership", "Individual / Sole Proprietorship")
-                _add("is_micro_enterprise", True)
+                emp_status = None  # a trade does not say whether they run their own business or work for someone: ask
             elif occ_lower in ("farmer", "agriculturist", "cultivator", "business"):
                 emp_status = "Self-employed"
-                _add("business_ownership", "Individual / Sole Proprietorship")
             elif occ_lower in ("student", "employed", "unemployed", "other"):
                 emp_status = self.occupation.capitalize()
             else:
@@ -219,7 +215,7 @@ class UserProfileInput(BaseModel):
                 _add("karnataka_caste_category", "Category 3A")
             elif "3b" in caste_lower:
                 _add("karnataka_caste_category", "Category 3B")
-            elif "1" in caste_lower:
+            elif re.fullmatch(r"(cat(egory)?[\s.\-]*)?1", caste_lower):
                 _add("karnataka_caste_category", "Category 1")
 
         # Inspect extra attributes

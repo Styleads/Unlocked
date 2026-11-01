@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useLive } from "../live";
-import { fromApiScheme } from "../model";
+import { fromApiScheme, isEligibilityRule } from "../model";
 import type { ApiRequirement } from "../api";
 import type { ReactNode } from "react";
 import { ArrowRight, Check, CircleAlert, X, ShieldCheck } from "lucide-react";
@@ -257,6 +257,7 @@ function LiveScheme() {
   }
   const vm = fromApiScheme(raw);
   const benefit = typeof raw.benefit === "string" ? raw.benefit : "";
+  const steps = raw.requirements.filter((r) => !isEligibilityRule(r));
   const unverified = raw.assessment_status === "not_yet_verified";
 
   return (
@@ -284,8 +285,8 @@ function LiveScheme() {
             </Section>
 
             <Section n="02" title="Criteria" className="rise d3">
-              {raw.requirements.length === 0 && <p style={{ fontSize: 15, color: "var(--muted)" }}>No criteria were found for this scheme.</p>}
-              {raw.requirements.map((r) => (
+              {raw.requirements.filter(isEligibilityRule).length === 0 && <p style={{ fontSize: 15, color: "var(--muted)" }}>No criteria were found for this scheme.</p>}
+              {raw.requirements.filter(isEligibilityRule).map((r) => (
                 <div key={r.requirement_id} className="crit">
                   <div className="row-between" style={{ gap: 12, alignItems: "flex-start" }}>
                     <span style={{ fontSize: 16 }}>“{r.criterion}”</span>
@@ -296,6 +297,19 @@ function LiveScheme() {
                 </div>
               ))}
             </Section>
+
+            {steps.length > 0 && (
+              <Section n="02b" title="Steps in applying" className="rise d3">
+                <p style={{ fontSize: 14, color: "var(--muted)" }}>These are part of the application process. They don't decide whether you qualify.</p>
+                {steps.map((r) => (
+                  <div key={r.requirement_id} className="crit">
+                    <span style={{ fontSize: 16 }}>“{r.criterion}”</span>
+                    <span style={{ fontSize: 14, color: "var(--faint)" }}>{r.reason}</span>
+                    {r.source_url ? <SourceLink href={r.source_url}>{r.source_url.replace(/^https?:\/\//, "")}</SourceLink> : <span className="unsrc">SOURCE NOT CONFIRMED</span>}
+                  </div>
+                ))}
+              </Section>
+            )}
 
             {benefit && !unverified && (
               <Section n="03" title="Benefit">

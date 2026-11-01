@@ -133,10 +133,17 @@ def _scalar(value: Any) -> bool:
     return not isinstance(value, (dict, list, tuple, set))
 
 
-def _word_in(needle: str, haystack: str) -> bool:
-    if not needle or not haystack or len(needle) < 3:
-        return False
-    return bool(re.search(rf"\b{re.escape(needle)}\b", haystack, re.IGNORECASE))
+_OPTION_SPLIT = re.compile(r"\s*(?:/|,|;|\||\bor\b|\band\b)\s*", re.IGNORECASE)
+
+
+def _same_option(a: str, b: str) -> bool:
+    """Two answers name the same option. A compound option ("SC/ST", "BPL or APL") matches on any phrase it lists,
+    but a longer phrase never matches a shorter one inside it ("Non-OBC" is not "OBC", "Government-aided" is not
+    "Government"): a verified rule must not be satisfied by a substring.
+    """
+    pa = {p.strip() for p in _OPTION_SPLIT.split(a) if p.strip()}
+    pb = {p.strip() for p in _OPTION_SPLIT.split(b) if p.strip()}
+    return bool(pa & pb)
 
 
 def _equality(op: Operator, required: Any, value: Any) -> Result:
@@ -146,7 +153,7 @@ def _equality(op: Operator, required: Any, value: Any) -> Result:
     r_k = _key(required)
     equal = v_k == r_k
     if not equal and isinstance(v_k, str) and isinstance(r_k, str):
-        equal = _word_in(r_k, v_k) or _word_in(v_k, r_k)
+        equal = _same_option(r_k, v_k)
     if (op == Operator.eq) == equal:
         return RequirementStatus.satisfied, "Your answer matches the rule."
     return RequirementStatus.not_satisfied, "Your answer does not match the rule."
@@ -161,7 +168,7 @@ def _membership(op: Operator, required: Any, value: Any) -> Result:
     req_keys = {_key(r) for r in required}
     member = val_key in req_keys
     if not member and isinstance(val_key, str):
-        member = any(isinstance(r, str) and (_word_in(r, val_key) or _word_in(val_key, r)) for r in req_keys)
+        member = any(isinstance(r, str) and _same_option(r, val_key) for r in req_keys)
     allowed = ", ".join(str(r) for r in required)
     if (op == Operator.in_) == member:
         return RequirementStatus.satisfied, f"Your answer is allowed by the rule ({allowed})."

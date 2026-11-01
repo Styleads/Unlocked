@@ -13,6 +13,8 @@ function fakeBackend(opts: { discoverStatus?: number; extraQuestion?: boolean; f
   const requirements = (income: "unknown" | "satisfied" | "not_satisfied") => [
     { requirement_id: "s1_req_1", attribute: "education_level", status: "satisfied", reason: "Your answer meets this rule.", criterion: "Must be an undergraduate student.", source_url: "https://example.gov.in/s1" },
     { requirement_id: "s1_req_2", attribute: "annual_family_income", status: income, reason: income === "unknown" ? "You haven't answered this yet." : "ok", criterion: "Family income up to Rs. 2.5 lakh.", source_url: "https://example.gov.in/s1" },
+    // a step in applying, not a condition on the person: it must not count as a criterion
+    { requirement_id: "s1_req_3", attribute: "portal_registration", status: "unknown", category: "application_prerequisite", reason: "Part of the application process.", criterion: "Applicants register on the scholarship portal.", source_url: "https://example.gov.in/s1" },
   ];
   const scheme = (income: "unknown" | "satisfied" | "not_satisfied"): ApiScheme[] => [
     {
@@ -237,6 +239,20 @@ describe("questions the backend stops asking", () => {
     expect(await screen.findByText(/1 other question isn't needed any more/)).toBeTruthy();
     expect(screen.queryByText("Which best describes your work situation?")).toBeNull();
     expect(screen.getByText("What's your family's annual income?")).toBeTruthy(); // the answered one stays
+  });
+});
+
+describe("rules that are steps, not conditions", () => {
+  it("counts only eligibility rules as criteria and lists the steps in applying separately", async () => {
+    await runDiscovery();
+    fireEvent.click(screen.getAllByRole("link", { name: /Continue/ })[0]);
+    fireEvent.click(screen.getByRole("link", { name: /See my results/ }));
+    await screen.findByRole("heading", { name: "Fictional Merit Scholarship" });
+    expect(screen.getByText("1 of 2 criteria met")).toBeTruthy(); // not "1 of 3": the portal step is not a criterion
+    fireEvent.click(screen.getAllByRole("link", { name: "View details" })[0]);
+    expect(await screen.findByRole("heading", { name: "Steps in applying" })).toBeTruthy();
+    expect(screen.getByText("“Applicants register on the scholarship portal.”")).toBeTruthy();
+    expect(screen.queryByText("“Applicants register on the scholarship portal.”", { selector: ".crit .row-between span" })).toBeNull();
   });
 });
 

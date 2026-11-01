@@ -25,6 +25,8 @@ export type ApiRequirement = {
   reason: string;
   criterion: string;
   source_url?: string | null;
+  /** What kind of rule it is. Only "eligibility" rules decide whether someone qualifies; the rest are steps in applying. */
+  category?: "eligibility" | "application_prerequisite" | "document" | "verification" | "post_approval";
 };
 
 export type ApiDocument = { name: string; source_url?: string | null; evidence?: string | null };

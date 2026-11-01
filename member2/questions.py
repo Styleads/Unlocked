@@ -345,7 +345,10 @@ def apply_answers(
 
         # Preserve known user information: never overwrite an answered value with non-answered (skipped, unknown, unanswered)
         existing = answers.get(spec.id)
-        if existing and existing.state == AnswerState.answered and state != AnswerState.answered:
+        if (
+            existing and existing.state == AnswerState.answered
+            and state not in (AnswerState.answered, AnswerState.prefer_not_to_answer)
+        ):
             history[question_id(spec.id)] = existing.state
             log.debug("preserving answered value for attribute=%s against %s", spec.id, state.value)
             continue

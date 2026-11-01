@@ -25,6 +25,17 @@ LLM_MARK = "normalized_by"  # extra field on requirements the LLM structured or 
 EXTRACTION_FAILED = "Automatic rule extraction failed."
 
 
+# Registry attributes that describe a step in applying rather than a condition on the person.
+PROCEDURAL_ATTRIBUTES = {"portal_registration"}
+
+
+def is_portal_registration(name: Optional[str]) -> bool:
+    """True for an attribute that just says "registered on the portal", by its name alone. Names that merely contain
+    the word (gst_registration, birth_registration_certificate) are real conditions and stay as they are."""
+    n = (name or "").strip().lower().removeprefix("unmapped:")
+    return bool(re.fullmatch(r"(portal_)?registration(_status)?|registered_(on|with)_[a-z_]*portal[a-z_]*", n))
+
+
 def classify_requirement_category(
     criterion: str,
     attribute: Optional[str] = None,
@@ -32,7 +43,11 @@ def classify_requirement_category(
 ) -> RequirementCategory:
     """Distinguish eligibility conditions from procedural, documentation,
     verification, and post-approval requirements."""
-    text = f"{criterion or ''} {attribute or ''} {evidence or ''}".strip().lower()
+    # Only the rule itself decides. The evidence quote is a whole paragraph that often mentions "apply online" or
+    # "eKYC" next to a real income or age limit, and must not turn that limit into a procedure.
+    if attribute and is_canonical(attribute) and attribute not in PROCEDURAL_ATTRIBUTES:
+        return RequirementCategory.eligibility
+    text = f"{criterion or ''} {attribute or ''}".strip().lower()
 
     # 1. Post-approval requirements (after approval or award)
     if re.search(
@@ -352,9 +367,7 @@ def _canonical_rule(attribute: Optional[str], operator: Optional[str], value: An
             return "domicile_karnataka", Operator.is_true, None
 
     # Never produce unmapped:registered_...
-    if any(w in f"{attr_str} {slug_str}" for w in ("registered_vishwakarma", "portal_registration")) or (
-        "register" in f"{attr_str} {slug_str}" and "vishwakarma" in f"{attr_str} {slug_str}"
-    ):
+    if is_portal_registration(attr_str) or is_portal_registration(slug_str):
         return "portal_registration", None, value
 
     if not attr:
@@ -364,13 +377,14 @@ def _canonical_rule(attribute: Optional[str], operator: Optional[str], value: An
     spec: AttributeSpec = ATTRIBUTES[attr]
 
     # Canonical helpers for specialized attributes
-    if spec.id == "citizenship":
+    no_rule = operator is None and value in (None, "")
+    if spec.id == "citizenship" and no_rule:
         return "citizenship", Operator.eq, "Indian"
-    if spec.id == "business_ownership":
+    if spec.id == "business_ownership" and no_rule:
         return "business_ownership", Operator.in_, ["Individual / Sole Proprietorship", "Partnership"]
-    if spec.id == "is_micro_enterprise":
+    if spec.id == "is_micro_enterprise" and no_rule:
         return "is_micro_enterprise", Operator.is_true, None
-    if spec.id == "viable_business_plan":
+    if spec.id == "viable_business_plan" and no_rule:
         return "viable_business_plan", Operator.is_true, None
 
     try:
@@ -431,7 +445,7 @@ def _deterministic(scheme: SchemeRecord) -> SchemeRecord:
                 resolved = resolve_attribute(req.attribute)
                 if resolved:
                     update["attribute"] = resolved
-                elif any(w in req.attribute.lower() for w in ("registered_", "registration", "vishwakarma")):
+                elif is_portal_registration(req.attribute):
                     update["category"] = RequirementCategory.application_prerequisite
                     update["attribute"] = "portal_registration"
                 elif not req.attribute.startswith("unmapped:"):

@@ -55,6 +55,25 @@ class RuleCondition(BaseModel):
     value: Any = None
 
 
+_CATEGORY_ALIASES = {
+    "application_prerequisite": ("application_prerequisite", "prerequisite", "application_step", "procedure", "enrolment"),
+    "document": ("document", "certificate", "doc"),
+    "verification": ("verification", "authority_check", "inspection"),
+    "post_approval": ("post_approval", "obligation", "post_award", "training"),
+}
+
+
+def coerce_requirement_category(v: Any) -> Any:
+    """Map the model's loose category words onto the enum; anything unrecognised is plain eligibility."""
+    if not isinstance(v, str):
+        return v
+    val = v.strip().lower()
+    for category, words in _CATEGORY_ALIASES.items():
+        if val in words:
+            return RequirementCategory(category)
+    return RequirementCategory.eligibility
+
+
 class Requirement(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -72,20 +91,7 @@ class Requirement(BaseModel):
     @field_validator("category", mode="before")
     @classmethod
     def _coerce_category(cls, v: Any) -> Any:
-        if isinstance(v, str):
-            val = v.strip().lower()
-            if val in ("application_prerequisite", "prerequisite", "application_step", "procedure", "enrolment"):
-                return RequirementCategory.application_prerequisite
-            if val in ("document", "certificate", "doc"):
-                return RequirementCategory.document
-            if val in ("verification", "authority_check", "inspection"):
-                return RequirementCategory.verification
-            if val in ("post_approval", "obligation", "post_award", "training"):
-                return RequirementCategory.post_approval
-            if val == "eligibility":
-                return RequirementCategory.eligibility
-            return RequirementCategory.eligibility
-        return v
+        return coerce_requirement_category(v)
 
     @field_validator("status", mode="before")
     @classmethod
@@ -211,21 +217,8 @@ class RequirementResult(BaseModel):
 
     @field_validator("category", mode="before")
     @classmethod
-    def _coerce_result_category(cls, v: Any) -> Any:
-        if isinstance(v, str):
-            val = v.strip().lower()
-            if val in ("application_prerequisite", "prerequisite", "application_step", "procedure", "enrolment"):
-                return RequirementCategory.application_prerequisite
-            if val in ("document", "certificate", "doc"):
-                return RequirementCategory.document
-            if val in ("verification", "authority_check", "inspection"):
-                return RequirementCategory.verification
-            if val in ("post_approval", "obligation", "post_award", "training"):
-                return RequirementCategory.post_approval
-            if val == "eligibility":
-                return RequirementCategory.eligibility
-            return RequirementCategory.eligibility
-        return v
+    def _coerce_category(cls, v: Any) -> Any:
+        return coerce_requirement_category(v)
 
 
 class SchemeStatus(str, Enum):

@@ -144,7 +144,7 @@ def assess_requirement(req: Requirement, user_answers: AnswersInput = None) -> R
         if category == RequirementCategory.application_prerequisite:
             return _result(req, RequirementStatus.unknown, "This registration/procedure is part of the application process rather than an eligibility disqualification.", category=category)
         if category == RequirementCategory.post_approval:
-            return _result(req, RequirementStatus.satisfied, "This is a post-approval condition (required before loan disbursement) rather than an upfront eligibility exclusion.", category=category)
+            return _result(req, RequirementStatus.unknown, "This is a post-approval condition (required before loan disbursement) rather than an upfront eligibility exclusion.", category=category)
         return _result(req, RequirementStatus.needs_clarification, "We couldn't match this rule to a question we can ask.", category=category)
 
     cond = req.condition
@@ -244,6 +244,11 @@ def _roll_up(scheme: SchemeRecord, items: Union[list[RequirementResult], set[Req
             if getattr(r, "category", RequirementCategory.eligibility) == RequirementCategory.eligibility
         ]
         statuses = {r.status for r in eligibility_results}
+        # A rule we could not verify keeps the scheme at "Not yet verified" whatever its category, and a scheme with
+        # no eligibility rules at all is never waved through as a match.
+        statuses |= {r.status for r in results if r.status == RequirementStatus.unverified}
+        if not eligibility_results:
+            statuses |= {r.status for r in results}
     else:
         statuses = set(items)
 
@@ -276,25 +281,16 @@ def assess_scheme(scheme: SchemeInput, user_answers: AnswersInput = None, *, now
             results.append(assess_requirement(req, answers))
 
     status = _roll_up(scheme, results)
-    missing = sorted({r.attribute for r in results if r.status == RequirementStatus.unknown and r.attribute})
+    # Only eligibility rules can be "missing information": a registration or post-approval step is not something we can ask
+    # about, so listing it would promise a question that never comes.
+    missing = sorted({
+        r.attribute for r in results
+        if r.status == RequirementStatus.unknown and r.attribute
+        and getattr(r, "category", RequirementCategory.eligibility) == RequirementCategory.eligibility
+    })
     log.debug("assessed scheme=%s status=%s missing=%s", scheme.id, status.value, missing)
 
     explanation = _explain(status, scheme, results, missing)
-
-    # Scheme interactions (e.g. Vishwakarma 5-year loan restriction and family restriction)
-    prev_loan = answers.get("previous_government_loan")
-    fam_ben = answers.get("family_member_beneficiary")
-    if scheme.id in ("pm_vishwakarma", "fallback_pm_vishwakarma"):
-        if prev_loan and prev_loan.value is True:
-            explanation = explanation.replace(
-                DISCLAIMER,
-                "Interaction Notice: PM Vishwakarma credit assistance cannot be availed if you have an active loan under PMEGP, PM SVANidhi, or MUDRA in the past 5 years. " + DISCLAIMER
-            )
-        if fam_ben and fam_ben.value is True:
-            explanation = explanation.replace(
-                DISCLAIMER,
-                "Interaction Notice: PM Vishwakarma scheme benefits are restricted to one member per family. " + DISCLAIMER
-            )
 
     return Assessment(
         scheme_id=scheme.id,
