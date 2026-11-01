@@ -272,6 +272,32 @@ def to_canonical_scheme(raw: Any) -> CanonicalSchemeRecord:
         if note not in uncertainties:
             uncertainties.append(note)
 
+    raw_office = data.get("office_contact") or {}
+    if not isinstance(raw_office, dict):
+        raw_office = {}
+
+    office_name = data.get("office_name") or raw_office.get("office_name")
+    office_address = data.get("office_address") or raw_office.get("office_address")
+    office_hours = data.get("office_hours") or raw_office.get("office_hours")
+    whatsapp_num = data.get("whatsapp_number") or raw_office.get("whatsapp_number")
+    contact_mail = data.get("contact_email") or raw_office.get("email") or raw_office.get("contact_email")
+    reception_num = data.get("reception_number") or raw_office.get("reception_number") or data.get("contact_phone")
+    contact_src = data.get("contact_source") or raw_office.get("contact_source") or "website"
+    # Contact details are unverified unless a source said otherwise; a missing flag never means "verified".
+    contact_verif = raw_office.get("verification_status") or "unverified"
+
+    unified_office_contact = {
+        "office_name": office_name,
+        "office_address": office_address,
+        "office_hours": office_hours,
+        "whatsapp_number": whatsapp_num,
+        "email": contact_mail,
+        "reception_number": reception_num,
+        "source_url": raw_office.get("source_url") or data.get("contact_source_url"),  # never borrow the scheme page as the contact's source
+        "contact_source": contact_src,
+        "verification_status": contact_verif,
+    }
+
     return CanonicalSchemeRecord(
         id=scheme_id,
         name=name,
@@ -288,17 +314,20 @@ def to_canonical_scheme(raw: Any) -> CanonicalSchemeRecord:
         deadline=data.get("deadline"),
         deadline_status=data.get("deadline_status"),
         deadline_source_url=data.get("deadline_source_url"),
-        contact_email=data.get("contact_email"),
+        contact_email=contact_mail,
         contact_email_source_url=data.get("contact_email_source_url"),
-        contact_phone=data.get("contact_phone"),
+        contact_phone=data.get("contact_phone") or reception_num,
         contact_phone_source_url=data.get("contact_phone_source_url"),
-        office_hours=data.get("office_hours"),
+        office_name=office_name,
+        office_address=office_address,
+        office_hours=office_hours,
         office_hours_source_url=data.get("office_hours_source_url"),
-        whatsapp_number=data.get("whatsapp_number"),
+        whatsapp_number=whatsapp_num,
         whatsapp_number_source_url=data.get("whatsapp_number_source_url"),
-        reception_number=data.get("reception_number"),
+        reception_number=reception_num,
         reception_number_source_url=data.get("reception_number_source_url"),
-        contact_source=data.get("contact_source"),
+        contact_source=contact_src,
+        office_contact=unified_office_contact,
         official_sources=official_sources,
         verification_status=_map_scheme_status(data.get("verification_status")),
         uncertainties=uncertainties,

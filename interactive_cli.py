@@ -34,7 +34,23 @@ if str(PROJECT_ROOT) not in sys.path:
 
 load_dotenv(PROJECT_ROOT / ".env", override=False)
 
-from api.database import create_session, get_session, init_db, get_call_session
+from api.database import (
+    create_session,
+    get_session,
+    init_db,
+    add_office_chat_message,
+    create_office_chat_session,
+    create_unresolved_question,
+    get_appointment_preferences,
+    get_office_chat_session,
+    get_office_contact_by_scheme,
+    get_unresolved_question,
+    list_office_chat_messages,
+    list_unresolved_questions,
+    save_appointment_preferences,
+    update_office_chat_session,
+    update_unresolved_question,
+)
 from api.orchestrator import (
     analyze_scheme_rejection,
     generate_action_plan,
@@ -54,8 +70,27 @@ from api.schemas import (
     SessionEmailActionRequest,
     SessionRejectionActionRequest,
 )
-from api.call_simulator import CallSimulatorService
-from agent4.call_models import UserAppointmentPreferences
+from api.office_simulator import OfficeSimulatorService
+from agent4.office_chat_models import (
+    AppointmentOffer,
+    AppointmentStatus,
+    ChatStatus,
+    ContactSource,
+    OfficeChatMessage,
+    OfficeChatSession,
+    OfficeContact,
+    TimeWindow,
+    UnresolvedQuestion,
+    UnresolvedQuestionStatus,
+    UserAppointmentPreferences,
+    VerificationStatus,
+)
+from agent4.office_chat_agent import (
+    build_initial_office_enquiry,
+    decide_chat_turn,
+    format_whatsapp_click_url,
+)
+from api.main import _generate_simulated_ics
 
 console = Console()
 
@@ -503,8 +538,88 @@ async def interactive_action_plan(session_id: str):
 
 
 # ---------------------------------------------------------------------------
-# Step 5: Action & Follow-Through Studio (Agent 4)
+# Office Chat Simulator (WhatsApp-Style Demo)
 # ---------------------------------------------------------------------------
+
+async def interactive_office_chat_simulation(session_id: str) -> None:
+    """Drive the simulated office chat through the same endpoints the website uses, so the CLI can't drift from them."""
+    import httpx
+    from api.main import app as api_app
+
+    console.print("\n[bold green]══ IN-WEBSITE OFFICE CHAT SIMULATOR (WhatsApp-style demo) ══[/bold green]")
+    console.print("[yellow bold]⚠️  SIMULATION ONLY. No real office is contacted and no personal details are shared.[/yellow bold]\n")
+
+    schemes = await get_session_schemes(session_id)
+    if not schemes:
+        console.print("[yellow]No schemes in this session yet. Run discovery first.[/yellow]")
+        return
+    for idx, sch in enumerate(schemes, start=1):
+        console.print(f"  [{idx}] [bold]{sch.name}[/bold]")
+    target = schemes[IntPrompt.ask("Scheme", default=1, choices=[str(i) for i in range(1, len(schemes) + 1)]) - 1]
+
+    transport = httpx.ASGITransport(app=api_app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://office-chat") as client:
+        scenarios = {
+            "1": ("scenario_a_success", "A: office offers a slot and confirms"),
+            "2": ("scenario_b_no_availability", "B: no slots available"),
+            "3": ("scenario_c_missing_info", "C: office asks for details, shares a WhatsApp number"),
+            "4": ("scenario_d_unclear_unsupported", "D: office cannot handle this by chat"),
+        }
+        for key, (_, label) in scenarios.items():
+            console.print(f"  [bold cyan]{key}[/bold cyan]. {label}")
+        scenario_id = scenarios[Prompt.ask("Scenario", choices=list(scenarios), default="1")][0]
+
+        days_raw = Prompt.ask("Days you can attend (comma separated, blank = any day)", default="")
+        days = [d.strip().lower() for d in days_raw.split(",") if d.strip()]
+        pre_auth = Confirm.ask("Let Unlocked confirm a slot that matches those days without asking you?", default=False)
+
+        res = await client.post(f"/api/sessions/{session_id}/office-chats", json={
+            "scheme_id": target.id, "scenario_id": scenario_id,
+            "preferred_days": days, "pre_authorized_confirmation": pre_auth,
+        })
+        if res.status_code != 201:
+            console.print(f"[red]Could not start the chat: {res.text}[/red]")
+            return
+        view = res.json()
+        chat_id = view["chat_id"]
+        shown = 0
+
+        def show(v: dict) -> None:
+            nonlocal shown
+            for m in v["messages"][shown:]:
+                who = "[cyan]Unlocked[/cyan]" if m["sender"] == "unlocked" else "[green]Office (simulated)[/green]"
+                console.print(f"{who}: {m['message_text']}")
+            shown = len(v["messages"])
+
+        show(view)
+        for _ in range(8):
+            res = await client.post(f"/api/office-chats/{chat_id}/advance")
+            if res.status_code == 409:
+                # an offered slot needs the applicant's decision before the chat can go on
+                approve = Confirm.ask("The office offered a slot. Approve it?", default=True)
+                res = await client.post(f"/api/office-chats/{chat_id}/user-input", json={"action": "approve_slot", "user_approved_slot": approve})
+            if res.status_code not in (200, 201):
+                console.print(f"[red]{res.text}[/red]")
+                break
+            view = res.json()
+            show(view)
+            if view["appointment_status"] == "awaiting_user_approval":
+                approve = Confirm.ask("The office offered a slot. Approve it?", default=True)
+                res = await client.post(f"/api/office-chats/{chat_id}/user-input", json={"action": "approve_slot", "user_approved_slot": approve})
+                view = res.json()
+                show(view)
+            if view["chat_status"] in ("completed", "no_availability", "unable_to_resolve", "cancelled", "manual_followup_required") or view["unresolved_questions"]:
+                break
+
+        outcome = (await client.get(f"/api/office-chats/{chat_id}/outcome")).json()
+        console.print(Panel(outcome["summary"] + "\n" + "\n".join(f"- {n}" for n in outcome["next_steps"]), title="Outcome (simulated)", border_style="green"))
+        for uq in outcome["unresolved_questions"]:
+            console.print(f"[yellow]Open question:[/yellow] {uq['question_text']}")
+            if uq.get("click_to_chat_url"):
+                console.print(f"  WhatsApp link (number given by the office): {uq['click_to_chat_url']}")
+        if outcome.get("calendar_ics"):
+            console.print("[green]A calendar file is available from /api/office-chats/%s/calendar/download[/green]" % chat_id)
+
 
 async def interactive_action_studio(session_id: str):
     console.print("\n[bold cyan]══ STEP 5: Action & Follow-Through Studio (Agent 4) ══[/bold cyan]")
@@ -521,7 +636,7 @@ async def interactive_action_studio(session_id: str):
         console.print("  [bold cyan]2[/bold cyan]. Generate RFC 5545 Calendar .ics File (Application Deadline or In-Person Appointment)")
         console.print("  [bold cyan]3[/bold cyan]. Record Application Progress & Contradiction Detection")
         console.print("  [bold cyan]4[/bold cyan]. Analyze Scheme Rejection Notice (Redaction + Official Guidance Next Steps)")
-        console.print("  [bold cyan]5[/bold cyan]. In-Browser AI Appointment Call Simulation (Turn-based HTTP, Zero-PII, Slot Booking)")
+        console.print("  [bold cyan]5[/bold cyan]. Office Chat Simulator (WhatsApp-Style Demo, Scenarios A-D, Zero-PII, Slot Booking)")
         console.print("  [bold cyan]6[/bold cyan]. Exit Interactive Test Interface")
 
         choice = Prompt.ask("Select action", choices=["1", "2", "3", "4", "5", "6"], default="1")
@@ -694,7 +809,7 @@ async def interactive_action_studio(session_id: str):
             ))
 
         elif choice == "5":
-            await interactive_call_simulation(session_id)
+            await interactive_office_chat_simulation(session_id)
 
         elif choice == "6":
             console.print("\n[bold cyan]Thank you for testing Project Unlocked! Exiting interface.[/bold cyan]")
@@ -715,7 +830,7 @@ async def main():
     console.print("  [bold cyan]3[/bold cyan]. Test Agent 2: Consolidated Questionnaire & Dynamic Reassessment")
     console.print("  [bold cyan]4[/bold cyan]. Test Agent 3: Document Planning DAG & Topological Sorting")
     console.print("  [bold cyan]5[/bold cyan]. Test Agent 4: Action Studio (Emails, Calendars, Progress, Rejection)")
-    console.print("  [bold cyan]6[/bold cyan]. Test Agent 4 Feature: In-Browser AI Appointment Call Simulation")
+    console.print("  [bold cyan]6[/bold cyan]. Test Agent 4 Feature: Office Chat Simulator (WhatsApp-Style Demo)")
     console.print("  [bold cyan]7[/bold cyan]. Exit")
 
     mode = Prompt.ask("\nEnter choice", choices=["1", "2", "3", "4", "5", "6", "7"], default="1")
@@ -775,10 +890,10 @@ async def main():
             await interactive_action_studio(session_id)
 
     elif mode == "6":
-        # Call Simulation
+        # Office Chat Simulation
         schemes = await execute_discovery(session_id)
         if schemes:
-            await interactive_call_simulation(session_id)
+            await interactive_office_chat_simulation(session_id)
 
 
 if __name__ == "__main__":

@@ -49,6 +49,11 @@ None open.
 
 ## Session log
 
+### 2026-11-01 (Review of feat/whatsappsim + Office Chat in the frontend)
+- Merged `origin/feat/whatsappsim` onto main on branch `fix/whatsappsim-review` and fixed what the review found: model-decided statuses (now deterministic, model rewords only), invented slot/hours/preferences/phone numbers, invented fallback office contacts (now `simulated`/`unverified`), no guards on advance/user-input/finish, IST stamped as UTC, enum text in the outcome, duplicate confirmations, broken `interactive_cli` office chat (now drives the real endpoints). See `agent4/DECISIONS.md` 20-22. 665 backend tests pass.
+- Frontend: new `/office-chat` page (`pages/OfficeChat.tsx`), `api.ts` calls, entry button "Try an office chat (simulated)" in Next steps. 66 frontend tests pass (7 new in `office-chat.test.tsx`).
+- Open: the document list in the simulated appointment email is empty unless `documents` is passed (not yet wired from the plan checklist); scenario ids are the backend's fixed script names (no listing endpoint).
+
 ### 2026-10-31 (Option A Feature Freeze & Backend Ready for Frontend Integration)
 - Member 3 froze backend feature work per Option A: 455 tests passing 100% green offline.
 - Backend is hardened, durable, and ready for full end-to-end integration testing with Member 4 (Frontend).

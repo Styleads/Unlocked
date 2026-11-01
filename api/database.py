@@ -29,6 +29,20 @@ from member2.models import (
 )
 from member2.questions import apply_answers
 from agent4.models import ApplicationProgress
+from agent4.office_chat_models import (
+    AppointmentOffer,
+    AppointmentStatus,
+    ChatStatus,
+    ContactSource,
+    OfficeChatMessage,
+    OfficeChatSession,
+    OfficeContact,
+    TimeWindow,
+    UnresolvedQuestion,
+    UnresolvedQuestionStatus,
+    UserAppointmentPreferences,
+    VerificationStatus,
+)
 from api.schemas import UserProfileInput
 
 logger = logging.getLogger(__name__)
@@ -165,6 +179,79 @@ CREATE TABLE IF NOT EXISTS follow_up_tokens (
 );
 CREATE INDEX IF NOT EXISTS idx_follow_up_hash ON follow_up_tokens(token_hash);
 CREATE INDEX IF NOT EXISTS idx_follow_up_session ON follow_up_tokens(session_id);
+
+CREATE TABLE IF NOT EXISTS office_contacts (
+    office_id TEXT PRIMARY KEY,
+    scheme_id TEXT,
+    office_name TEXT,
+    office_address TEXT,
+    office_hours_json TEXT,
+    whatsapp_number TEXT,
+    email TEXT,
+    reception_number TEXT,
+    source_url TEXT,
+    contact_source TEXT NOT NULL DEFAULT 'website',
+    verification_status TEXT NOT NULL DEFAULT 'unverified',
+    last_checked TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_office_contacts_scheme ON office_contacts(scheme_id);
+
+CREATE TABLE IF NOT EXISTS appointment_preferences (
+    preference_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    scheme_id TEXT,
+    office_id TEXT,
+    preferred_days_json TEXT NOT NULL DEFAULT '[]',
+    preferred_windows_json TEXT NOT NULL DEFAULT '[]',
+    date_range_start TEXT,
+    date_range_end TEXT,
+    pre_authorized_confirmation INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_appointment_prefs_session ON appointment_preferences(session_id);
+
+CREATE TABLE IF NOT EXISTS office_chat_sessions (
+    chat_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    scheme_id TEXT NOT NULL,
+    office_id TEXT,
+    scenario_id TEXT,
+    simulation_mode INTEGER NOT NULL DEFAULT 1,
+    chat_status TEXT NOT NULL DEFAULT 'created',
+    appointment_status TEXT NOT NULL DEFAULT 'not_requested',
+    appointment_json TEXT,
+    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_office_chat_sess_session ON office_chat_sessions(session_id);
+
+CREATE TABLE IF NOT EXISTS office_chat_messages (
+    message_id TEXT PRIMARY KEY,
+    chat_id TEXT NOT NULL,
+    sender TEXT NOT NULL,
+    message_text TEXT NOT NULL,
+    turn_index INTEGER NOT NULL,
+    metadata_json TEXT DEFAULT '{}',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_office_chat_msg_chat ON office_chat_messages(chat_id, turn_index);
+
+CREATE TABLE IF NOT EXISTS unresolved_questions (
+    question_id TEXT PRIMARY KEY,
+    chat_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    question_text TEXT NOT NULL,
+    context_json TEXT DEFAULT '{}',
+    receiver_whatsapp_number TEXT,
+    contact_source TEXT NOT NULL DEFAULT 'receiver_provided',
+    status TEXT NOT NULL DEFAULT 'open',
+    draft_message TEXT,
+    click_to_chat_url TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_unresolved_q_session ON unresolved_questions(session_id);
+CREATE INDEX IF NOT EXISTS idx_unresolved_q_chat ON unresolved_questions(chat_id);
 """
 
 
@@ -1346,4 +1433,374 @@ async def update_scheme_progress(
         await conn.commit()
     session.updated_at = now_iso
     return session
+
+
+# ---------------------------------------------------------------------------
+# Office Chat Simulator Persistence CRUD Operations
+# ---------------------------------------------------------------------------
+
+async def save_office_contact(contact: OfficeContact, db_path: Optional[str] = None) -> OfficeContact:
+    """Save or update an office contact record in SQLite."""
+    sql = """
+    INSERT OR REPLACE INTO office_contacts (
+        office_id, scheme_id, office_name, office_address, office_hours_json,
+        whatsapp_number, email, reception_number, source_url, contact_source,
+        verification_status, last_checked
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    """
+    async with get_connection(db_path) as conn:
+        await conn.execute(
+            sql,
+            (
+                contact.office_id,
+                contact.scheme_id,
+                contact.office_name,
+                contact.office_address,
+                _to_json(contact.office_hours),
+                contact.whatsapp_number,
+                contact.email,
+                contact.reception_number,
+                contact.source_url,
+                contact.contact_source.value if hasattr(contact.contact_source, "value") else str(contact.contact_source),
+                contact.verification_status.value if hasattr(contact.verification_status, "value") else str(contact.verification_status),
+                contact.last_checked.isoformat() if contact.last_checked else None,
+            ),
+        )
+        await conn.commit()
+    return contact
+
+
+async def get_office_contact(office_id: str, db_path: Optional[str] = None) -> Optional[OfficeContact]:
+    """Retrieve an office contact record by office_id."""
+    sql = "SELECT * FROM office_contacts WHERE office_id = ?;"
+    async with get_connection(db_path) as conn:
+        async with conn.execute(sql, (office_id,)) as cursor:
+            row = await cursor.fetchone()
+            if not row:
+                return None
+            return _row_to_office_contact(row)
+
+
+async def get_office_contact_by_scheme(scheme_id: str, db_path: Optional[str] = None) -> Optional[OfficeContact]:
+    """Retrieve the primary office contact record associated with a scheme."""
+    sql = "SELECT * FROM office_contacts WHERE scheme_id = ? ORDER BY created_at DESC LIMIT 1;"
+    async with get_connection(db_path) as conn:
+        async with conn.execute(sql, (scheme_id,)) as cursor:
+            row = await cursor.fetchone()
+            if not row:
+                return None
+            return _row_to_office_contact(row)
+
+
+def _row_to_office_contact(row: aiosqlite.Row) -> OfficeContact:
+    return OfficeContact(
+        office_id=row["office_id"],
+        scheme_id=row["scheme_id"],
+        office_name=row["office_name"],
+        office_address=row["office_address"],
+        office_hours=_from_json(row["office_hours_json"]),
+        whatsapp_number=row["whatsapp_number"],
+        email=row["email"],
+        reception_number=row["reception_number"],
+        source_url=row["source_url"],
+        contact_source=ContactSource(row["contact_source"]) if row["contact_source"] in ContactSource._value2member_map_ else ContactSource.website,
+        verification_status=VerificationStatus(row["verification_status"]) if row["verification_status"] in VerificationStatus._value2member_map_ else VerificationStatus.unverified,
+        last_checked=datetime.fromisoformat(row["last_checked"]) if row["last_checked"] else None,
+    )
+
+
+async def save_appointment_preferences(prefs: UserAppointmentPreferences, db_path: Optional[str] = None) -> UserAppointmentPreferences:
+    """Save or update user appointment preferences for a session/scheme."""
+    sql = """
+    INSERT OR REPLACE INTO appointment_preferences (
+        preference_id, session_id, scheme_id, office_id,
+        preferred_days_json, preferred_windows_json,
+        date_range_start, date_range_end, pre_authorized_confirmation, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    """
+    windows_json = _to_json([w.model_dump(mode="json") if hasattr(w, "model_dump") else w for w in prefs.preferred_windows])
+    async with get_connection(db_path) as conn:
+        await conn.execute(
+            sql,
+            (
+                prefs.preference_id,
+                prefs.session_id,
+                prefs.scheme_id,
+                prefs.office_id,
+                _to_json(prefs.preferred_days),
+                windows_json,
+                prefs.date_range_start.isoformat() if prefs.date_range_start else None,
+                prefs.date_range_end.isoformat() if prefs.date_range_end else None,
+                1 if prefs.pre_authorized_confirmation else 0,
+                prefs.created_at.isoformat() if prefs.created_at else datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        await conn.commit()
+    return prefs
+
+
+async def get_appointment_preferences(session_id: str, scheme_id: Optional[str] = None, db_path: Optional[str] = None) -> Optional[UserAppointmentPreferences]:
+    """Retrieve appointment preferences for a session and optional scheme."""
+    from datetime import date
+    if scheme_id:
+        sql = "SELECT * FROM appointment_preferences WHERE session_id = ? AND scheme_id = ? ORDER BY created_at DESC LIMIT 1;"
+        params: tuple[Any, ...] = (session_id, scheme_id)
+    else:
+        sql = "SELECT * FROM appointment_preferences WHERE session_id = ? ORDER BY created_at DESC LIMIT 1;"
+        params = (session_id,)
+
+    async with get_connection(db_path) as conn:
+        async with conn.execute(sql, params) as cursor:
+            row = await cursor.fetchone()
+            if not row:
+                return None
+            windows_raw = _from_json(row["preferred_windows_json"], default=[])
+            windows = [TimeWindow(**w) if isinstance(w, dict) else w for w in windows_raw]
+            return UserAppointmentPreferences(
+                preference_id=row["preference_id"],
+                session_id=row["session_id"],
+                scheme_id=row["scheme_id"],
+                office_id=row["office_id"],
+                preferred_days=_from_json(row["preferred_days_json"], default=[]),
+                preferred_windows=windows,
+                date_range_start=date.fromisoformat(row["date_range_start"]) if row["date_range_start"] else None,
+                date_range_end=date.fromisoformat(row["date_range_end"]) if row["date_range_end"] else None,
+                pre_authorized_confirmation=bool(row["pre_authorized_confirmation"]),
+                created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else None,
+            )
+
+
+async def create_office_chat_session(chat_session: OfficeChatSession, db_path: Optional[str] = None) -> OfficeChatSession:
+    """Create a new simulated office chat session in SQLite."""
+    sql = """
+    INSERT OR REPLACE INTO office_chat_sessions (
+        chat_id, session_id, scheme_id, office_id, scenario_id,
+        simulation_mode, chat_status, appointment_status,
+        appointment_json, started_at, completed_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    """
+    apt_json = _to_json(chat_session.appointment.model_dump(mode="json")) if chat_session.appointment else None
+    async with get_connection(db_path) as conn:
+        await conn.execute(
+            sql,
+            (
+                chat_session.chat_id,
+                chat_session.session_id,
+                chat_session.scheme_id,
+                chat_session.office_id,
+                chat_session.scenario_id,
+                1 if chat_session.simulation_mode else 0,
+                chat_session.chat_status.value if hasattr(chat_session.chat_status, "value") else str(chat_session.chat_status),
+                chat_session.appointment_status.value if hasattr(chat_session.appointment_status, "value") else str(chat_session.appointment_status),
+                apt_json,
+                chat_session.started_at.isoformat() if chat_session.started_at else datetime.now(timezone.utc).isoformat(),
+                chat_session.completed_at.isoformat() if chat_session.completed_at else None,
+            ),
+        )
+        await conn.commit()
+    return chat_session
+
+
+async def get_office_chat_session(chat_id: str, db_path: Optional[str] = None) -> Optional[OfficeChatSession]:
+    """Retrieve an office chat session by chat_id."""
+    sql = "SELECT * FROM office_chat_sessions WHERE chat_id = ?;"
+    async with get_connection(db_path) as conn:
+        async with conn.execute(sql, (chat_id,)) as cursor:
+            row = await cursor.fetchone()
+            if not row:
+                return None
+            return _row_to_office_chat_session(row)
+
+
+async def update_office_chat_session(chat_session: OfficeChatSession, db_path: Optional[str] = None) -> OfficeChatSession:
+    """Update status, appointment, and completion of an office chat session."""
+    sql = """
+    UPDATE office_chat_sessions SET
+        chat_status = ?,
+        appointment_status = ?,
+        appointment_json = ?,
+        completed_at = ?
+    WHERE chat_id = ?;
+    """
+    apt_json = _to_json(chat_session.appointment.model_dump(mode="json")) if chat_session.appointment else None
+    async with get_connection(db_path) as conn:
+        await conn.execute(
+            sql,
+            (
+                chat_session.chat_status.value if hasattr(chat_session.chat_status, "value") else str(chat_session.chat_status),
+                chat_session.appointment_status.value if hasattr(chat_session.appointment_status, "value") else str(chat_session.appointment_status),
+                apt_json,
+                chat_session.completed_at.isoformat() if chat_session.completed_at else None,
+                chat_session.chat_id,
+            ),
+        )
+        await conn.commit()
+    return chat_session
+
+
+async def list_office_chat_sessions(session_id: str, db_path: Optional[str] = None) -> list[OfficeChatSession]:
+    """List all office chat sessions belonging to a citizen session."""
+    sql = "SELECT * FROM office_chat_sessions WHERE session_id = ? ORDER BY started_at DESC;"
+    async with get_connection(db_path) as conn:
+        async with conn.execute(sql, (session_id,)) as cursor:
+            rows = await cursor.fetchall()
+            return [_row_to_office_chat_session(r) for r in rows]
+
+
+def _row_to_office_chat_session(row: aiosqlite.Row) -> OfficeChatSession:
+    apt_data = _from_json(row["appointment_json"])
+    appointment = AppointmentOffer(**apt_data) if apt_data else None
+    return OfficeChatSession(
+        chat_id=row["chat_id"],
+        session_id=row["session_id"],
+        scheme_id=row["scheme_id"],
+        office_id=row["office_id"],
+        scenario_id=row["scenario_id"],
+        simulation_mode=bool(row["simulation_mode"]),
+        chat_status=ChatStatus(row["chat_status"]) if row["chat_status"] in ChatStatus._value2member_map_ else ChatStatus.created,
+        appointment_status=AppointmentStatus(row["appointment_status"]) if row["appointment_status"] in AppointmentStatus._value2member_map_ else AppointmentStatus.not_requested,
+        appointment=appointment,
+        started_at=datetime.fromisoformat(row["started_at"]) if row["started_at"] else datetime.now(timezone.utc),
+        completed_at=datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None,
+    )
+
+
+async def add_office_chat_message(msg: OfficeChatMessage, db_path: Optional[str] = None) -> OfficeChatMessage:
+    """Append a dialogue turn message to the office chat transcript."""
+    sql = """
+    INSERT INTO office_chat_messages (
+        message_id, chat_id, sender, message_text, turn_index, metadata_json, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?);
+    """
+    async with get_connection(db_path) as conn:
+        await conn.execute(
+            sql,
+            (
+                msg.message_id,
+                msg.chat_id,
+                msg.sender,
+                msg.message_text,
+                msg.turn_index,
+                _to_json(msg.metadata),
+                msg.created_at.isoformat() if msg.created_at else datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        await conn.commit()
+    return msg
+
+
+async def list_office_chat_messages(chat_id: str, db_path: Optional[str] = None) -> list[OfficeChatMessage]:
+    """Retrieve ordered message transcript for an office chat."""
+    sql = "SELECT * FROM office_chat_messages WHERE chat_id = ? ORDER BY turn_index ASC;"
+    async with get_connection(db_path) as conn:
+        async with conn.execute(sql, (chat_id,)) as cursor:
+            rows = await cursor.fetchall()
+            return [
+                OfficeChatMessage(
+                    message_id=r["message_id"],
+                    chat_id=r["chat_id"],
+                    sender=r["sender"],
+                    message_text=r["message_text"],
+                    turn_index=r["turn_index"],
+                    metadata=_from_json(r["metadata_json"], default={}),
+                    created_at=datetime.fromisoformat(r["created_at"]) if r["created_at"] else datetime.now(timezone.utc),
+                )
+                for r in rows
+            ]
+
+
+async def create_unresolved_question(uq: UnresolvedQuestion, db_path: Optional[str] = None) -> UnresolvedQuestion:
+    """Record an unresolved question raised during simulated conversation."""
+    sql = """
+    INSERT OR REPLACE INTO unresolved_questions (
+        question_id, chat_id, session_id, question_text, context_json,
+        receiver_whatsapp_number, contact_source, status, draft_message,
+        click_to_chat_url, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    """
+    async with get_connection(db_path) as conn:
+        await conn.execute(
+            sql,
+            (
+                uq.question_id,
+                uq.chat_id,
+                uq.session_id,
+                uq.question_text,
+                _to_json(uq.context),
+                uq.receiver_whatsapp_number,
+                uq.contact_source.value if hasattr(uq.contact_source, "value") else str(uq.contact_source),
+                uq.status.value if hasattr(uq.status, "value") else str(uq.status),
+                uq.draft_message,
+                uq.click_to_chat_url,
+                uq.created_at.isoformat() if uq.created_at else datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        await conn.commit()
+    return uq
+
+
+async def get_unresolved_question(question_id: str, db_path: Optional[str] = None) -> Optional[UnresolvedQuestion]:
+    """Retrieve an unresolved question by question_id."""
+    sql = "SELECT * FROM unresolved_questions WHERE question_id = ?;"
+    async with get_connection(db_path) as conn:
+        async with conn.execute(sql, (question_id,)) as cursor:
+            row = await cursor.fetchone()
+            if not row:
+                return None
+            return _row_to_unresolved_question(row)
+
+
+async def list_unresolved_questions(session_id: str, chat_id: Optional[str] = None, db_path: Optional[str] = None) -> list[UnresolvedQuestion]:
+    """List unresolved questions for a session and optional chat_id."""
+    if chat_id:
+        sql = "SELECT * FROM unresolved_questions WHERE session_id = ? AND chat_id = ? ORDER BY created_at ASC;"
+        params: tuple[Any, ...] = (session_id, chat_id)
+    else:
+        sql = "SELECT * FROM unresolved_questions WHERE session_id = ? ORDER BY created_at ASC;"
+        params = (session_id,)
+
+    async with get_connection(db_path) as conn:
+        async with conn.execute(sql, params) as cursor:
+            rows = await cursor.fetchall()
+            return [_row_to_unresolved_question(r) for r in rows]
+
+
+async def update_unresolved_question(uq: UnresolvedQuestion, db_path: Optional[str] = None) -> UnresolvedQuestion:
+    """Update status, draft message, or click-to-chat URL of an unresolved question."""
+    sql = """
+    UPDATE unresolved_questions SET
+        status = ?,
+        draft_message = ?,
+        click_to_chat_url = ?
+    WHERE question_id = ?;
+    """
+    async with get_connection(db_path) as conn:
+        await conn.execute(
+            sql,
+            (
+                uq.status.value if hasattr(uq.status, "value") else str(uq.status),
+                uq.draft_message,
+                uq.click_to_chat_url,
+                uq.question_id,
+            ),
+        )
+        await conn.commit()
+    return uq
+
+
+def _row_to_unresolved_question(row: aiosqlite.Row) -> UnresolvedQuestion:
+    return UnresolvedQuestion(
+        question_id=row["question_id"],
+        chat_id=row["chat_id"],
+        session_id=row["session_id"],
+        question_text=row["question_text"],
+        context=_from_json(row["context_json"], default={}),
+        receiver_whatsapp_number=row["receiver_whatsapp_number"],
+        contact_source=ContactSource(row["contact_source"]) if row["contact_source"] in ContactSource._value2member_map_ else ContactSource.receiver_provided,
+        status=UnresolvedQuestionStatus(row["status"]) if row["status"] in UnresolvedQuestionStatus._value2member_map_ else UnresolvedQuestionStatus.open,
+        draft_message=row["draft_message"],
+        click_to_chat_url=row["click_to_chat_url"],
+        created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else datetime.now(timezone.utc),
+    )
+
 

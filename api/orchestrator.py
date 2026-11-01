@@ -120,6 +120,13 @@ def build_scheme_views(
                 deadline_source_url=s.deadline_source_url,
                 official_sources=s.official_sources,
                 source_type=s.source_type,
+                office_name=getattr(s, "office_name", None),
+                office_address=getattr(s, "office_address", None),
+                office_hours=getattr(s, "office_hours", None),
+                whatsapp_number=getattr(s, "whatsapp_number", None),
+                contact_email=getattr(s, "contact_email", None),
+                reception_number=getattr(s, "reception_number", None),
+                office_contact=getattr(s, "office_contact", None),
                 assessment_status=ass.status.value if ass else None,
                 assessment_explanation=ass.explanation if ass else None,
                 requirements=[

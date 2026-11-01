@@ -1,9 +1,10 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
-import { BadgeCheck, CalendarPlus, Check, CircleDashed, ClipboardCopy, Mail, PartyPopper, Send } from "lucide-react";
+import { BadgeCheck, CalendarPlus, Check, CircleDashed, ClipboardCopy, Mail, MessageCircle, PartyPopper, Send } from "lucide-react";
 import { ArrowChip } from "../ui";
 import { useSession } from "../session";
 import { useLive } from "../live";
+import { useRouter } from "../router";
 import { APPLY_STAGES, SCHEMES } from "../data";
 import type { ApplyStage } from "../data";
 import type { PlanDocVM, PlanVM } from "../model";
@@ -125,6 +126,7 @@ function SchemeStep({
   stage: ApplyStage; setStage: (s: ApplyStage) => void;
 }) {
   const live = useLive();
+  const { navigate } = useRouter();
   const [date, setDate] = useState("");
   const [copied, setCopied] = useState(false);
   const [note, setNote] = useState("");
@@ -256,6 +258,11 @@ function SchemeStep({
         <button className="btn-ghost nx-sm" onClick={toggleMail} aria-expanded={mailOpen}>
           <Mail size={15} aria-hidden /> {mailOpen ? "Hide email draft" : "Draft email"}
         </button>
+        {live.active && (
+          <button className="btn-ghost nx-sm" onClick={() => { live.select(id); navigate("/office-chat"); }}>
+            <MessageCircle size={15} aria-hidden /> Try an office chat (simulated)
+          </button>
+        )}
       </div>
       {note && <p role="status" style={{ fontSize: 13, color: "var(--warn-text)" }}>{note}</p>}
 

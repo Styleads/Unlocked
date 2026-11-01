@@ -174,6 +174,13 @@ _RAW_FALLBACK_SCHEMES = [
         "missing_information": ["Information may need rechecking — fallback data"],
         "last_verified": "2026-10-31T00:00:00+00:00",
         "claims": [],
+        "office_contact": {
+            "office_name": "Social Welfare Department Helpline & e-Attestation Cell",  # a descriptive label for the demo desk, not a confirmed office
+            # No address, hours, phone, WhatsApp number or email: none was confirmed from an official source, so
+            # none is made up. The simulated desk uses fixtures instead.
+            "contact_source": "simulated",
+            "verification_status": "unverified",
+        },
     },
     {
         "id": "fallback-fee-reimbursement-scst-002",
@@ -278,6 +285,13 @@ _RAW_FALLBACK_SCHEMES = [
         "missing_information": ["Information may need rechecking — fallback data"],
         "last_verified": "2026-10-31T00:00:00+00:00",
         "claims": [],
+        "office_contact": {
+            "office_name": "Social Welfare Department Directorate of Technical Education Liaison Cell",  # a descriptive label for the demo desk, not a confirmed office
+            # No address, hours, phone, WhatsApp number or email: none was confirmed from an official source, so
+            # none is made up. The simulated desk uses fixtures instead.
+            "contact_source": "simulated",
+            "verification_status": "unverified",
+        },
     },
     {
         "id": "fallback-post-matric-hostel-003",
@@ -382,6 +396,13 @@ _RAW_FALLBACK_SCHEMES = [
         "missing_information": ["Information may need rechecking — fallback data"],
         "last_verified": "2026-10-31T00:00:00+00:00",
         "claims": [],
+        "office_contact": {
+            "office_name": "District Social Welfare Hostel Allotment Office",  # a descriptive label for the demo desk, not a confirmed office
+            # No address, hours, phone, WhatsApp number or email: none was confirmed from an official source, so
+            # none is made up. The simulated desk uses fixtures instead.
+            "contact_source": "simulated",
+            "verification_status": "unverified",
+        },
     },
     {
         "id": "fallback-pmfby-001",
@@ -463,6 +484,13 @@ _RAW_FALLBACK_SCHEMES = [
         ],
         "last_verified": "2025-01-15T00:00:00+00:00",
         "claims": [],
+        "office_contact": {
+            "office_name": "District Joint Director of Agriculture & Samrakshane Cell",  # a descriptive label for the demo desk, not a confirmed office
+            # No address, hours, phone, WhatsApp number or email: none was confirmed from an official source, so
+            # none is made up. The simulated desk uses fixtures instead.
+            "contact_source": "simulated",
+            "verification_status": "unverified",
+        },
     },
     {
         "id": "fallback-pmkisan-001",
@@ -545,6 +573,13 @@ _RAW_FALLBACK_SCHEMES = [
         ],
         "last_verified": "2025-01-15T00:00:00+00:00",
         "claims": [],
+        "office_contact": {
+            "office_name": "Raitha Samparka Kendra (RSK) & PM-KISAN Nodal Office",  # a descriptive label for the demo desk, not a confirmed office
+            # No address, hours, phone, WhatsApp number or email: none was confirmed from an official source, so
+            # none is made up. The simulated desk uses fixtures instead.
+            "contact_source": "simulated",
+            "verification_status": "unverified",
+        },
     },
     {
         "id": "fallback-raitha-siri-001",
@@ -630,6 +665,13 @@ _RAW_FALLBACK_SCHEMES = [
         ],
         "last_verified": "2025-01-15T00:00:00+00:00",
         "claims": [],
+        "office_contact": {
+            "office_name": "Karnataka Agriculture Department Raitha Siri Support Desk",  # a descriptive label for the demo desk, not a confirmed office
+            # No address, hours, phone, WhatsApp number or email: none was confirmed from an official source, so
+            # none is made up. The simulated desk uses fixtures instead.
+            "contact_source": "simulated",
+            "verification_status": "unverified",
+        },
     },
     {
         "id": "fallback-vidyasiri-001",
@@ -735,6 +777,13 @@ _RAW_FALLBACK_SCHEMES = [
         ],
         "last_verified": "2025-01-15T00:00:00+00:00",
         "claims": [],
+        "office_contact": {
+            "office_name": "Backward Classes Welfare Department e-Kalyana Cell",  # a descriptive label for the demo desk, not a confirmed office
+            # No address, hours, phone, WhatsApp number or email: none was confirmed from an official source, so
+            # none is made up. The simulated desk uses fixtures instead.
+            "contact_source": "simulated",
+            "verification_status": "unverified",
+        },
     },
     {
         "id": "fallback-pmksy-001",
@@ -807,6 +856,13 @@ _RAW_FALLBACK_SCHEMES = [
         ],
         "last_verified": "2025-01-15T00:00:00+00:00",
         "claims": [],
+        "office_contact": {
+            "office_name": "Watershed Development Department Micro-Irrigation Cell",  # a descriptive label for the demo desk, not a confirmed office
+            # No address, hours, phone, WhatsApp number or email: none was confirmed from an official source, so
+            # none is made up. The simulated desk uses fixtures instead.
+            "contact_source": "simulated",
+            "verification_status": "unverified",
+        },
     },
 ]
 
