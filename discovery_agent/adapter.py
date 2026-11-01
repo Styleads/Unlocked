@@ -21,6 +21,7 @@ from member2.models import (
     DocumentRequirement,
     Operator,
     Requirement,
+    RequirementCategory,
     RequirementVerification,
     SchemeRecord as CanonicalSchemeRecord,
     VerificationStatus,
@@ -64,6 +65,13 @@ def _map_attribute(raw_attr: Optional[str], criterion_text: str = "") -> Optiona
         resolved = resolve_attribute(raw_attr)
         if resolved:
             return resolved
+
+    from member2.attributes import detect_state_in_text
+    # NEVER map geographical conditions to unmapped:<state>
+    detected = detect_state_in_text(f"{raw_attr or ''} {criterion_text or ''}")
+    if detected:
+        return "domicile_karnataka" if detected == "Karnataka" else "state"
+
     if criterion_text:
         resolved = resolve_attribute(criterion_text)
         if resolved:
@@ -71,7 +79,15 @@ def _map_attribute(raw_attr: Optional[str], criterion_text: str = "") -> Optiona
     if not raw_attr:
         return None
     if raw_attr.startswith("unmapped:"):
+        inner = raw_attr[len("unmapped:"):]
+        detected_inner = detect_state_in_text(inner)
+        if detected_inner:
+            return "domicile_karnataka" if detected_inner == "Karnataka" else "state"
+        if any(w in inner for w in ("registered_", "registration", "vishwakarma")):
+            return "portal_registration"
         return raw_attr
+    if any(w in raw_attr.lower() for w in ("registered_", "registration", "vishwakarma")):
+        return "portal_registration"
     return f"unmapped:{_clean_slug(raw_attr)}"
 
 
@@ -135,6 +151,14 @@ def to_canonical_requirement(
     else:
         verification = RequirementVerification.unverified
 
+    from member2.normalize import classify_requirement_category
+    category = data.get("category")
+    if not category:
+        if data.get("kind") == "obligation":
+            category = RequirementCategory.post_approval
+        else:
+            category = classify_requirement_category(criterion, data.get("attribute") or data.get("related_attribute"), evidence)
+
     return Requirement(
         id=data.get("id") or f"{scheme_id}_req_{index}",
         attribute=_map_attribute(data.get("attribute") or data.get("related_attribute"), criterion),
@@ -142,6 +166,7 @@ def to_canonical_requirement(
         operator=_map_operator(data.get("operator")),
         value=data.get("value"),
         status=verification,
+        category=category,
         source_url=source_url,
         evidence=evidence,
     )

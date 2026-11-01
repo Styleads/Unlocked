@@ -23,6 +23,16 @@ class RequirementVerification(str, Enum):
     uncertain = "uncertain"
 
 
+class RequirementCategory(str, Enum):
+    """Category of requirement: separates eligibility from procedural steps."""
+
+    eligibility = "eligibility"
+    application_prerequisite = "application_prerequisite"
+    document = "document"
+    verification = "verification"
+    post_approval = "post_approval"
+
+
 class Operator(str, Enum):
     lte = "lte"
     lt = "lt"
@@ -54,9 +64,28 @@ class Requirement(BaseModel):
     operator: Optional[Operator] = None
     value: Any = None
     status: RequirementVerification = RequirementVerification.unverified
+    category: RequirementCategory = RequirementCategory.eligibility
     source_url: Optional[str] = None
     evidence: Optional[str] = None
     condition: Optional[RuleCondition] = None  # applies only to this group (DECISIONS #61)
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def _coerce_category(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            val = v.strip().lower()
+            if val in ("application_prerequisite", "prerequisite", "application_step", "procedure", "enrolment"):
+                return RequirementCategory.application_prerequisite
+            if val in ("document", "certificate", "doc"):
+                return RequirementCategory.document
+            if val in ("verification", "authority_check", "inspection"):
+                return RequirementCategory.verification
+            if val in ("post_approval", "obligation", "post_award", "training"):
+                return RequirementCategory.post_approval
+            if val == "eligibility":
+                return RequirementCategory.eligibility
+            return RequirementCategory.eligibility
+        return v
 
     @field_validator("status", mode="before")
     @classmethod
@@ -178,6 +207,25 @@ class RequirementResult(BaseModel):
     reason: str
     criterion: str
     source_url: Optional[str] = None
+    category: RequirementCategory = RequirementCategory.eligibility
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def _coerce_result_category(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            val = v.strip().lower()
+            if val in ("application_prerequisite", "prerequisite", "application_step", "procedure", "enrolment"):
+                return RequirementCategory.application_prerequisite
+            if val in ("document", "certificate", "doc"):
+                return RequirementCategory.document
+            if val in ("verification", "authority_check", "inspection"):
+                return RequirementCategory.verification
+            if val in ("post_approval", "obligation", "post_award", "training"):
+                return RequirementCategory.post_approval
+            if val == "eligibility":
+                return RequirementCategory.eligibility
+            return RequirementCategory.eligibility
+        return v
 
 
 class SchemeStatus(str, Enum):

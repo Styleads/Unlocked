@@ -28,6 +28,7 @@ from .models import (
     Question,
     RangeOption,
     Requirement,
+    RequirementCategory,
     RequirementResult,
     RuleCondition,
     RequirementStatus,

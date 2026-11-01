@@ -178,27 +178,49 @@ class UserProfileInput(BaseModel):
         if is_kar:
             _add("state", "Karnataka")
             _add("domicile_karnataka", True)
+            _add("domicile_state", "Karnataka")
         elif self.state:
             _add("state", self.state)
+            _add("domicile_state", self.state)
 
+        _add("citizenship", "Indian")
         _add("district", self.district)
         _add("annual_family_income", self.annual_family_income or self.annual_income)
         _add("age", self.age)
         _add("gender", self.gender)
         _add("social_category", self.social_category or self.caste_category)
         _add("education_level", self.education_level)
+        _add("occupation", self.occupation)
 
         emp_status = self.model_dump().get("employment_status")
         if not emp_status and self.occupation:
             occ_lower = self.occupation.lower().strip()
-            if occ_lower in ("farmer", "agriculturist", "cultivator", "artisan", "business", "self-employed", "self employed"):
+            if any(w in occ_lower for w in ("tailor", "artisan", "weaver", "craftsperson", "self-employed", "self employed", "carpenter", "blacksmith", "potter", "cobbler")):
                 emp_status = "Self-employed"
+                _add("business_ownership", "Individual / Sole Proprietorship")
+                _add("is_micro_enterprise", True)
+            elif occ_lower in ("farmer", "agriculturist", "cultivator", "business"):
+                emp_status = "Self-employed"
+                _add("business_ownership", "Individual / Sole Proprietorship")
             elif occ_lower in ("student", "employed", "unemployed", "other"):
                 emp_status = self.occupation.capitalize()
             else:
                 emp_status = "Other"
         if emp_status:
             _add("employment_status", emp_status)
+
+        if self.caste_category:
+            caste_lower = self.caste_category.lower().strip()
+            if "2a" in caste_lower:
+                _add("karnataka_caste_category", "Category 2A")
+            elif "2b" in caste_lower:
+                _add("karnataka_caste_category", "Category 2B")
+            elif "3a" in caste_lower:
+                _add("karnataka_caste_category", "Category 3A")
+            elif "3b" in caste_lower:
+                _add("karnataka_caste_category", "Category 3B")
+            elif "1" in caste_lower:
+                _add("karnataka_caste_category", "Category 1")
 
         # Inspect extra attributes
         for k, v in self.model_dump().items():

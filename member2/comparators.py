@@ -6,6 +6,7 @@ answer can only ever produce `unknown`.
 from __future__ import annotations
 
 from typing import Any, Optional
+import re
 
 from .models import Answer, AnswerState, Operator, RequirementStatus
 
@@ -132,10 +133,20 @@ def _scalar(value: Any) -> bool:
     return not isinstance(value, (dict, list, tuple, set))
 
 
+def _word_in(needle: str, haystack: str) -> bool:
+    if not needle or not haystack or len(needle) < 3:
+        return False
+    return bool(re.search(rf"\b{re.escape(needle)}\b", haystack, re.IGNORECASE))
+
+
 def _equality(op: Operator, required: Any, value: Any) -> Result:
     if not _scalar(value) or not _scalar(required):
         return RequirementStatus.needs_clarification, "The answer can't be compared with this rule."
-    equal = _key(value) == _key(required)
+    v_k = _key(value)
+    r_k = _key(required)
+    equal = v_k == r_k
+    if not equal and isinstance(v_k, str) and isinstance(r_k, str):
+        equal = _word_in(r_k, v_k) or _word_in(v_k, r_k)
     if (op == Operator.eq) == equal:
         return RequirementStatus.satisfied, "Your answer matches the rule."
     return RequirementStatus.not_satisfied, "Your answer does not match the rule."
@@ -146,7 +157,11 @@ def _membership(op: Operator, required: Any, value: Any) -> Result:
         return RequirementStatus.needs_clarification, "The rule's list of allowed values couldn't be read."
     if not _scalar(value):
         return RequirementStatus.needs_clarification, "The answer can't be compared with this rule."
-    member = _key(value) in {_key(r) for r in required}
+    val_key = _key(value)
+    req_keys = {_key(r) for r in required}
+    member = val_key in req_keys
+    if not member and isinstance(val_key, str):
+        member = any(isinstance(r, str) and (_word_in(r, val_key) or _word_in(val_key, r)) for r in req_keys)
     allowed = ", ".join(str(r) for r in required)
     if (op == Operator.in_) == member:
         return RequirementStatus.satisfied, f"Your answer is allowed by the rule ({allowed})."

@@ -19,6 +19,7 @@ from .models import (
     AnswerState,
     InputType,
     Question,
+    RequirementCategory,
     RequirementVerification,
     SchemeRecord,
     SchemeStatus,
@@ -89,16 +90,41 @@ def _useful_usage(schemes: Iterable[SchemeRecord], answers: dict[str, Answer], *
                 and is_condition(req.attribute)
                 and req.id not in conflicts
             ):
-                use = usage[req.attribute]
-                use.scheme_ids.add(scheme.id)
-                use.n_requirements += 1
-                if not use.text:
-                    use.text = req.value if isinstance(req.value, str) and req.value.strip() else req.criterion
+                # Don't ask application prerequisites or post-approval conditions as upfront eligibility questions
+                if getattr(req, "category", RequirementCategory.eligibility) == RequirementCategory.eligibility:
+                    use = usage[req.attribute]
+                    use.scheme_ids.add(scheme.id)
+                    use.n_requirements += 1
+                    if not use.text:
+                        use.text = req.value if isinstance(req.value, str) and req.value.strip() else req.criterion
     return usage
+
+
+CORE_ENTERPRISE_ATTRS = {
+    "occupation",
+    "business_ownership",
+    "previous_government_loan",
+    "has_bank_default",
+    "family_member_beneficiary",
+    "is_micro_enterprise",
+}
+LOAN_PARAMS_ATTRS = {
+    "funding_amount_needed",
+    "loan_purpose",
+    "business_stage",
+}
 
 
 def _score(spec: AttributeSpec, use: _Usage) -> int:
     score = 10 * len(use.scheme_ids) + 4 * use.n_requirements - _SENSITIVITY_PENALTY[spec.sensitivity] - spec.effort
+    # Dynamic prioritization for enterprise, artisan, and credit schemes:
+    # 1. Trade/occupation and operating structure
+    # 2. Previous credit restrictions and family restrictions
+    # 3. Funding amount and purpose
+    if spec.id in CORE_ENTERPRISE_ATTRS:
+        score += 30
+    elif spec.id in LOAN_PARAMS_ATTRS:
+        score += 20
     # A scheme's own condition matters to that scheme only: ask it after every
     # shared question, so it doesn't crowd the first batches.
     return score - 1000 if is_condition(spec.id) else score
@@ -180,11 +206,12 @@ def generate_consolidated_questions(
     is_kar = (
         answers.get("domicile_karnataka", Answer(attribute="", state=AnswerState.unanswered)).value is True
         or str(answers.get("state", Answer(attribute="", state=AnswerState.unanswered)).value or "").lower() == "karnataka"
+        or str(answers.get("domicile_state", Answer(attribute="", state=AnswerState.unanswered)).value or "").lower() == "karnataka"
     )
     if is_kar:
         candidates = {
             a: u for a, u in candidates.items()
-            if a not in ("state", "domicile_karnataka")
+            if a not in ("state", "domicile_karnataka", "domicile_state")
             and not (a.startswith("unmapped:") and ("karnataka" in a.lower() or bool(detect_state_in_text(f"{a} {u.text}"))))
         }
 
@@ -207,12 +234,13 @@ def generate_scheme_questions(
     is_kar = (
         answers.get("domicile_karnataka", Answer(attribute="", state=AnswerState.unanswered)).value is True
         or str(answers.get("state", Answer(attribute="", state=AnswerState.unanswered)).value or "").lower() == "karnataka"
+        or str(answers.get("domicile_state", Answer(attribute="", state=AnswerState.unanswered)).value or "").lower() == "karnataka"
     )
 
     questions = []
     for a in _rank(usage):
         if is_kar and (
-            a in ("state", "domicile_karnataka")
+            a in ("state", "domicile_karnataka", "domicile_state")
             or (a.startswith("unmapped:") and ("karnataka" in a.lower() or bool(detect_state_in_text(f"{a} {usage[a].text}"))))
         ):
             continue
@@ -234,6 +262,35 @@ def _clean_value(spec: AttributeSpec, value: Any) -> tuple[AnswerState, Any]:
         return AnswerState.skipped, None
     if isinstance(value, str) and value.strip().lower() in NOT_SURE_VALUES:
         return AnswerState.unknown, None
+
+    if spec.id == "citizenship":
+        if value is True or (isinstance(value, str) and value.strip().lower() in ("yes", "y", "true", "indian")):
+            return AnswerState.answered, "Indian"
+        if value is False or (isinstance(value, str) and value.strip().lower() in ("no", "n", "false", "other")):
+            return AnswerState.answered, "Other"
+
+    if spec.id == "business_ownership":
+        if value is True or (isinstance(value, str) and value.strip().lower() in ("yes", "y", "true", "individual", "sole proprietorship", "sole proprietor")):
+            return AnswerState.answered, "Individual / Sole Proprietorship"
+        if value is False or (isinstance(value, str) and value.strip().lower() in ("no", "n", "false", "corporate", "company")):
+            return AnswerState.answered, "Private Limited / Corporate"
+
+    if spec.id == "business_stage":
+        if value is True or (isinstance(value, str) and "new" in value.strip().lower()):
+            return AnswerState.answered, "New Business (Greenfield)"
+        if value is False or (isinstance(value, str) and "existing" in value.strip().lower()):
+            return AnswerState.answered, "Existing Business"
+
+    if spec.id == "loan_purpose" and isinstance(value, str):
+        v_low = value.strip().lower()
+        if "working capital" in v_low:
+            return AnswerState.answered, "Working capital"
+        if "machinery" in v_low or "equipment" in v_low or "tool" in v_low:
+            return AnswerState.answered, "Machinery or equipment purchase"
+        if "expansion" in v_low:
+            return AnswerState.answered, "Business expansion"
+        if "new enterprise" in v_low or "start" in v_low or "greenfield" in v_low:
+            return AnswerState.answered, "Setting up a new enterprise"
 
     if spec.input_type == InputType.select:
         match = next((o for o in spec.options if o.casefold() == str(value).strip().casefold()), None)
@@ -285,6 +342,14 @@ def apply_answers(
         state, value = answer.state, None
         if state == AnswerState.answered:
             state, value = _clean_value(spec, answer.value)
+
+        # Preserve known user information: never overwrite an answered value with non-answered (skipped, unknown, unanswered)
+        existing = answers.get(spec.id)
+        if existing and existing.state == AnswerState.answered and state != AnswerState.answered:
+            history[question_id(spec.id)] = existing.state
+            log.debug("preserving answered value for attribute=%s against %s", spec.id, state.value)
+            continue
+
         answers[spec.id] = Answer(attribute=spec.id, state=state, value=value)
         history[question_id(spec.id)] = state
         log.debug("answer recorded attribute=%s state=%s", spec.id, state.value)

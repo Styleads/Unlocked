@@ -17,12 +17,58 @@ from pydantic import BaseModel, ValidationError
 from .assess import SchemeInput, _as_scheme
 from .attributes import ATTRIBUTES, AttributeSpec, detect_state_in_text, is_canonical, normalize_text, resolve_attribute
 from .llm import LLMClient
-from .models import InputType, Operator, Requirement, RequirementVerification, RuleCondition, SchemeRecord
+from .models import InputType, Operator, Requirement, RequirementCategory, RequirementVerification, RuleCondition, SchemeRecord
 
 log = logging.getLogger(__name__)
 
 LLM_MARK = "normalized_by"  # extra field on requirements the LLM structured or extracted
 EXTRACTION_FAILED = "Automatic rule extraction failed."
+
+
+def classify_requirement_category(
+    criterion: str,
+    attribute: Optional[str] = None,
+    evidence: Optional[str] = None,
+) -> RequirementCategory:
+    """Distinguish eligibility conditions from procedural, documentation,
+    verification, and post-approval requirements."""
+    text = f"{criterion or ''} {attribute or ''} {evidence or ''}".strip().lower()
+
+    # 1. Post-approval requirements (after approval or award)
+    if re.search(
+        r"\b(basic training|advanced training|skill training|drawing the (?:first|second|\d+) tranche|"
+        r"first tranche of loan|maintenance of (?:regular )?attendance|75% attendance|"
+        r"repayment of loan|refund of scholarship|utilization certificate)\b",
+        text,
+    ):
+        return RequirementCategory.post_approval
+
+    # 2. Application prerequisites (steps user completes to apply)
+    if re.search(
+        r"\b(registered (?:on|with|as a|under|vishwakarma)|registration (?:on|portal|process|required|status)|"
+        r"enrolment (?:on|portal|process)|ekyc|e-kyc|aadhaar seeding|seed(?:ed)? with aadhaar|"
+        r"apply online|online application|portal registration|e-attestation)\b",
+        text,
+    ):
+        return RequirementCategory.application_prerequisite
+
+    # 3. Document requirements
+    if re.search(
+        r"\b(must submit|upload (?:the )?document|produce (?:the )?certificate|"
+        r"caste & income certificate \(rd number\)|certificates and other records)\b",
+        text,
+    ) and not re.search(r"\b(income must not exceed|income limit|below rs|annual family income)\b", text):
+        return RequirementCategory.document
+
+    # 4. Verification requirements (checks performed by authorities)
+    if re.search(
+        r"\b(field verification|physical inspection|committee recommendation|scrutiny by|"
+        r"verified by gram panchayat|verification by tahsildar|independent loan appraisal)\b",
+        text,
+    ):
+        return RequirementCategory.verification
+
+    return RequirementCategory.eligibility
 
 _ALLOWED_OPS = {
     InputType.number: {Operator.lte, Operator.lt, Operator.gte, Operator.gt, Operator.eq, Operator.neq},
@@ -283,26 +329,50 @@ def _numbers_supported(value: Any, evidence: Optional[str]) -> bool:
 def _canonical_rule(attribute: Optional[str], operator: Optional[str], value: Any, fallback_slug: str) -> tuple[str, Optional[Operator], Any]:
     """Map the model's attribute/operator/value onto the registry. Anything that
     doesn't fit leaves operator None, which assessment treats as needs_clarification."""
-    # Check if attribute, value or fallback_slug refers to Karnataka residency
     val_str = str(value or "").strip().lower()
     slug_str = str(fallback_slug or "").strip().lower()
     attr_str = str(attribute or "").strip().lower()
 
-    # Check for geographical state conditions
-    detected_state = detect_state_in_text(f"{attr_str} {slug_str} {val_str}")
-    if detected_state:
-        if detected_state == "Karnataka":
-            return "domicile_karnataka", Operator.is_true, None
-        return "state", Operator.eq, detected_state
-
-    if attr_str in ("karnataka", "domicile_karnataka") or val_str in ("karnataka", "in karnataka") or slug_str in ("karnataka", "in_karnataka", "state_of_karnataka"):
-        return "domicile_karnataka", Operator.is_true, None
-
     attr = attribute if is_canonical(attribute) else (resolve_attribute(attribute) if attribute else None)
+    if not attr:
+        # Check fallback_slug or value for resolution
+        attr = resolve_attribute(fallback_slug) or resolve_attribute(val_str)
+
+    if attr and attr not in ("state", "domicile_state", "domicile_karnataka"):
+        pass
+    else:
+        # Check for geographical state conditions - NEVER produce unmapped:<state>
+        detected_state = detect_state_in_text(f"{attr_str} {slug_str} {val_str}")
+        if detected_state:
+            if detected_state == "Karnataka":
+                return "domicile_karnataka", Operator.is_true, None
+            return "state", Operator.eq, detected_state
+
+        if attr_str in ("karnataka", "domicile_karnataka") or val_str in ("karnataka", "in karnataka") or slug_str in ("karnataka", "in_karnataka", "state_of_karnataka"):
+            return "domicile_karnataka", Operator.is_true, None
+
+    # Never produce unmapped:registered_...
+    if any(w in f"{attr_str} {slug_str}" for w in ("registered_vishwakarma", "portal_registration")) or (
+        "register" in f"{attr_str} {slug_str}" and "vishwakarma" in f"{attr_str} {slug_str}"
+    ):
+        return "portal_registration", None, value
+
     if not attr:
         named = attribute and attribute.strip().lower() != "unmapped"
         return f"unmapped:{_slug(attribute) if named else fallback_slug}", None, value
+
     spec: AttributeSpec = ATTRIBUTES[attr]
+
+    # Canonical helpers for specialized attributes
+    if spec.id == "citizenship":
+        return "citizenship", Operator.eq, "Indian"
+    if spec.id == "business_ownership":
+        return "business_ownership", Operator.in_, ["Individual / Sole Proprietorship", "Partnership"]
+    if spec.id == "is_micro_enterprise":
+        return "is_micro_enterprise", Operator.is_true, None
+    if spec.id == "viable_business_plan":
+        return "viable_business_plan", Operator.is_true, None
+
     try:
         op = Operator(operator) if operator else None
     except ValueError:
@@ -345,8 +415,28 @@ def _deterministic(scheme: SchemeRecord) -> SchemeRecord:
                 n += 1
             update["id"] = f"{scheme.id}_req_{n}"
             used_ids.add(update["id"])
-        if req.attribute and not is_canonical(req.attribute) and not req.attribute.startswith("unmapped:"):
-            update["attribute"] = resolve_attribute(req.attribute) or f"unmapped:{_slug(req.attribute)}"
+
+        # Category classification
+        cur_cat = getattr(req, "category", None)
+        inferred_cat = classify_requirement_category(req.criterion, req.attribute, req.evidence)
+        if cur_cat is None or (cur_cat == RequirementCategory.eligibility and inferred_cat != RequirementCategory.eligibility):
+            update["category"] = inferred_cat
+
+        # State detection for attribute name - NEVER map to unmapped:<state>
+        if req.attribute and not is_canonical(req.attribute):
+            detected_st = detect_state_in_text(req.attribute)
+            if detected_st:
+                update["attribute"] = "domicile_karnataka" if detected_st == "Karnataka" else "state"
+            else:
+                resolved = resolve_attribute(req.attribute)
+                if resolved:
+                    update["attribute"] = resolved
+                elif any(w in req.attribute.lower() for w in ("registered_", "registration", "vishwakarma")):
+                    update["category"] = RequirementCategory.application_prerequisite
+                    update["attribute"] = "portal_registration"
+                elif not req.attribute.startswith("unmapped:"):
+                    update["attribute"] = f"unmapped:{_slug(req.attribute)}"
+
         # Verified needs both a source and a quote from it.
         if (not req.source_url or not req.evidence) and req.status == RequirementVerification.verified:
             update["status"] = RequirementVerification.unverified
@@ -458,8 +548,11 @@ def _llm_pass(scheme: SchemeRecord, llm: LLMClient) -> SchemeRecord:
             elif status == RequirementVerification.verified:
                 # The group is unreadable or unsupported: the rule must not decide anything.
                 status, reason, pending = RequirementVerification.uncertain, "not_stated", []
+        cur_cat = getattr(req, "category", None)
+        inferred_cat = classify_requirement_category(req.criterion, attr, evidence)
         update = {"id": new_id, "attribute": attr, "operator": op, "value": value,
-                  "status": status, "condition": condition, LLM_MARK: "structured"}
+                  "status": status, "condition": condition, LLM_MARK: "structured",
+                  "category": cur_cat if cur_cat and cur_cat != RequirementCategory.eligibility else inferred_cat}
         if reason:
             update["uncertain_reason"] = reason
         # (rid, part index, label, phrase, value, is_group_check)
@@ -535,7 +628,9 @@ def _llm_pass(scheme: SchemeRecord, llm: LLMClient) -> SchemeRecord:
             ex_confirm += [(len(extracted), phrase, v) for phrase, v in pending]
             extracted.append(Requirement(
                 id=f"{scheme.id}_req_{n}", attribute=attr, criterion=criterion, operator=op, value=value,
-                status=status, source_url=source, evidence=evidence, **{LLM_MARK: "extracted"}, **extra,
+                status=status, source_url=source, evidence=evidence,
+                category=classify_requirement_category(criterion, attr, evidence),
+                **{LLM_MARK: "extracted"}, **extra,
             ))
         rejected = _confirm_meanings(llm, [(_label_of(extracted[i].attribute), phrase, v)
                                            for i, phrase, v in ex_confirm])

@@ -284,23 +284,29 @@ async def interactive_questionnaire(session_id: str):
     console.print("\n[bold cyan]══ STEP 3: Consolidated Questionnaire & Reassessment (Agent 2) ══[/bold cyan]")
     console.print("[dim]Agent 2 analyzes all candidate schemes, excludes known context answers, and ranks questions by information gain.[/dim]\n")
 
+    question_counter = 1
+    batch_idx = 1
     while True:
         questions = await get_session_questions(session_id)
         if not questions:
             console.print("[green]✓ No further questions needed for the current candidate schemes![/green]")
             break
 
-        console.print(f"[bold yellow]Pending Consolidated Questions: {len(questions)}[/bold yellow]\n")
+        console.print(f"\n[bold cyan]══ QUESTION BATCH {batch_idx} ══[/bold cyan]")
+        console.print(f"[bold yellow]Questions in this batch: {len(questions)}[/bold yellow]\n")
 
-        for idx, q in enumerate(questions, start=1):
+        for q_pos, q in enumerate(questions, start=1):
             console.print(Panel(
-                f"[bold white]{idx}. {q.question}[/bold white]\n\n"
+                f"[bold white]{question_counter}. {q.question}[/bold white]\n\n"
                 f"[dim cyan]Attribute ID:[/dim cyan] {q.attribute}\n"
                 f"[dim cyan]Why Asked:[/dim cyan] {q.why_asked}\n"
-                f"[dim cyan]Candidate Schemes Impacted:[/dim cyan] {', '.join(q.related_scheme_ids) or 'Multiple'}",
+                f"[dim cyan]Candidate Schemes Impacted:[/dim cyan] {', '.join(q.related_scheme_ids) or 'Multiple'}\n"
+                f"[dim cyan]Can Skip:[/dim cyan] Yes (type 's' to skip or 'u' for not sure)\n"
+                f"[dim cyan]Batch Progress:[/dim cyan] Question {q_pos} of {len(questions)}",
                 border_style="yellow",
                 box=box.ROUNDED,
             ))
+            question_counter += 1
 
             console.print("[bold]How would you like to answer?[/bold]")
             answer_val = None
@@ -397,10 +403,11 @@ async def interactive_questionnaire(session_id: str):
                 re_table.add_row(s.name, format_status(s.assessment_status), (s.assessment_explanation or "")[:70] + "...")
             console.print(re_table)
 
-            if idx < len(questions):
+            if q_pos < len(questions):
                 if not Confirm.ask("\nProceed to the next question?", default=True):
                     break
 
+        batch_idx += 1
         # Check if user wants another batch
         remaining = await get_session_questions(session_id)
         if remaining:
