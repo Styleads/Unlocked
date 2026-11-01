@@ -7,7 +7,7 @@ adhering strictly to docs/agents.md and plan.md.
 from __future__ import annotations
 
 import re
-from datetime import date, time
+from datetime import date, datetime, time
 from typing import Any, Literal, Optional, Union
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -327,6 +327,14 @@ class SchemeView(BaseModel):
     deadline_source_url: Optional[str] = None
     official_sources: list[str] = Field(default_factory=list)
     source_type: str = "live_search"
+    # Office contact information
+    office_name: Optional[str] = None
+    office_address: Optional[str] = None
+    office_hours: Optional[Any] = None
+    whatsapp_number: Optional[str] = None
+    contact_email: Optional[str] = None
+    reception_number: Optional[str] = None
+    office_contact: Optional[dict[str, Any]] = None
     # Assessment overlays
     assessment_status: Optional[str] = None
     assessment_explanation: Optional[str] = None
@@ -672,6 +680,97 @@ class AdvanceTimeResponse(BaseModel):
     processed_notifications: list[dict[str, Any]] = Field(default_factory=list)
 
 
+from agent4.office_chat_models import (
+    AppointmentOffer,
+    AppointmentStatus,
+    AssistantChatTurnDecision,
+    ChatStatus,
+    ContactHandoff,
+    ContactSource,
+    OfficeChatMessage,
+    OfficeChatSession,
+    OfficeContact,
+    TimeWindow,
+    UnresolvedQuestion,
+    UnresolvedQuestionStatus,
+    UserAppointmentPreferences,
+)
+
+
+# ---------------------------------------------------------------------------
+# 10. Office Chat Simulator Schemas
+# ---------------------------------------------------------------------------
+
+class CreateOfficeChatRequest(BaseModel):
+    """Request to initiate an in-website Office Chat Simulation."""
+    scheme_id: str
+    office_id: Optional[str] = None
+    scenario_id: Optional[str] = None  # e.g. "scenario_a_success"
+    availability: Optional[UserAppointmentPreferences] = None
+    preferred_days: Optional[list[str]] = None
+    preferred_windows: Optional[list[Union[TimeWindow, dict[str, str]]]] = None
+    pre_authorized_confirmation: bool = False
+
+
+class AdvanceOfficeChatRequest(BaseModel):
+    """Request to advance dialogue turn in the Office Chat Simulation."""
+    scenario_id: Optional[str] = None
+    user_message: Optional[str] = None
+
+
+class UserInputRequest(BaseModel):
+    """User approval for offered appointment slot or response to representative question."""
+    action: str = "approve_slot"  # "approve_slot" | "reject_slot" | "submit_info"
+    user_approved_slot: Optional[bool] = None
+    user_provided_info: Optional[str] = None
+    unresolved_question_id: Optional[str] = None
+
+
+class OfficeChatMessageView(BaseModel):
+    message_id: str
+    chat_id: str
+    sender: str
+    message_text: str
+    turn_index: int
+    created_at: datetime
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class OfficeChatView(BaseModel):
+    chat_id: str
+    session_id: str
+    scheme_id: str
+    office_id: Optional[str] = None
+    scenario_id: Optional[str] = None
+    simulation_mode: bool = True
+    chat_status: ChatStatus
+    appointment_status: AppointmentStatus
+    appointment: Optional[AppointmentOffer] = None
+    messages: list[OfficeChatMessageView] = Field(default_factory=list)
+    unresolved_questions: list[UnresolvedQuestion] = Field(default_factory=list)
+    next_action: Optional[str] = None
+    started_at: datetime
+    completed_at: Optional[datetime] = None
+
+
+class UnresolvedQuestionDraftRequest(BaseModel):
+    draft_message: str
+
+
+class OfficeChatOutcomeView(BaseModel):
+    chat_id: str
+    session_id: str
+    scheme_id: str
+    simulation_mode: bool = True
+    chat_status: ChatStatus
+    appointment_status: AppointmentStatus
+    appointment: Optional[AppointmentOffer] = None
+    unresolved_questions: list[UnresolvedQuestion] = Field(default_factory=list)
+    calendar_ics: Optional[str] = None
+    summary: str
+    next_steps: list[str] = Field(default_factory=list)
+
+
 __all__ = [
     # Health
     "HealthResponse",
@@ -720,6 +819,27 @@ __all__ = [
     "StandaloneCalendarRequest",
     "StandaloneProgressRequest",
     "StandaloneRejectionRequest",
+    # Office Chat Simulator models
+    "CreateOfficeChatRequest",
+    "AdvanceOfficeChatRequest",
+    "UserInputRequest",
+    "OfficeChatMessageView",
+    "OfficeChatView",
+    "UnresolvedQuestionDraftRequest",
+    "OfficeChatOutcomeView",
+    "OfficeContact",
+    "TimeWindow",
+    "UserAppointmentPreferences",
+    "AppointmentOffer",
+    "OfficeChatMessage",
+    "OfficeChatSession",
+    "UnresolvedQuestion",
+    "ContactHandoff",
+    "AssistantChatTurnDecision",
+    "ChatStatus",
+    "AppointmentStatus",
+    "UnresolvedQuestionStatus",
+    "ContactSource",
     # Re-exported Member 2 models
     "ActionPlan",
     "Answer",

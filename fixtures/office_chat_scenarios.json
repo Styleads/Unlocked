@@ -1,0 +1,110 @@
+{
+  "scenarios": {
+    "scenario_a_success": {
+      "scenario_id": "scenario_a_success",
+      "scenario_type": "successful_appointment",
+      "title": "Scenario A: Successful Appointment Offer & Explicit Confirmation",
+      "description": "Representative offers Monday 11:00 AM (matching preferences and office hours) and explicitly confirms upon request.",
+      "default_offered_slot": {
+        "date": "2026-11-02",
+        "day": "monday",
+        "time": "11:00",
+        "end_time": "11:30"
+      },
+      "turns": [
+        {
+          "turn_index": 2,
+          "expected_assistant_intent": "initial_enquiry",
+          "message": "Namaskara! This is the Social Welfare Department Helpdesk. Yes, we have document verification appointment slots open on Monday at 11:00 AM. Would you like to schedule for that time?",
+          "metadata": {
+            "intent": "offer_slot",
+            "offered_slot": {
+              "date": "2026-11-02",
+              "day": "monday",
+              "time": "11:00",
+              "end_time": "11:30"
+            },
+            "within_office_hours": true
+          }
+        },
+        {
+          "turn_index": 4,
+          "expected_assistant_intent": "confirm_slot",
+          "message": "Yes, Monday at 11:00 AM is confirmed for this simulated enquiry. Please bring the original documents for verification at the commissionerate office.",
+          "metadata": {
+            "intent": "explicit_confirmation",
+            "confirmed_slot": {
+              "date": "2026-11-02",
+              "day": "monday",
+              "time": "11:00",
+              "end_time": "11:30"
+            },
+            "is_explicit_confirmation": true
+          }
+        }
+      ]
+    },
+    "scenario_b_no_availability": {
+      "scenario_id": "scenario_b_no_availability",
+      "scenario_type": "no_availability",
+      "title": "Scenario B: No Available Slots",
+      "description": "Representative states that no verification slots are currently available in the requested window.",
+      "turns": [
+        {
+          "turn_index": 2,
+          "expected_assistant_intent": "initial_enquiry",
+          "message": "Namaskara! We currently have no appointment slots open in that time window this week. All physical verification slots are fully booked.",
+          "metadata": {
+            "intent": "no_availability",
+            "no_availability": true
+          }
+        }
+      ]
+    },
+    "scenario_c_missing_info": {
+      "scenario_id": "scenario_c_missing_info",
+      "scenario_type": "missing_information",
+      "title": "Scenario C: Missing Information & WhatsApp Contact Handoff",
+      "description": "Representative asks for applicant personal details; when refused under Zero-PII, provides official WhatsApp number for direct citizen submission.",
+      "turns": [
+        {
+          "turn_index": 2,
+          "expected_assistant_intent": "initial_enquiry",
+          "message": "Namaskara! Before we can check the appointment register, please provide the applicant's 11-digit college admission acknowledgment number and parent Aadhaar RD reference.",
+          "metadata": {
+            "intent": "request_missing_info",
+            "requested_info": "11-digit college admission acknowledgment number and parent Aadhaar RD reference"
+          }
+        },
+        {
+          "turn_index": 4,
+          "expected_assistant_intent": "refuse_pii_and_ask_contact",
+          "message": "Understood. The applicant can WhatsApp their acknowledgment details directly to our verification desk at +919845012345.",
+          "metadata": {
+            "intent": "provide_contact",
+            "receiver_whatsapp_number": "+919845012345",
+            "contact_source": "receiver_provided"
+          }
+        }
+      ]
+    },
+    "scenario_d_unclear_unsupported": {
+      "scenario_id": "scenario_d_unclear_unsupported",
+      "scenario_type": "unsupported_enquiry",
+      "title": "Scenario D: Unsupported Channel / Ambiguous Response",
+      "description": "Representative states that this enquiry cannot be handled over this channel and requires in-person or official portal contact.",
+      "turns": [
+        {
+          "turn_index": 2,
+          "expected_assistant_intent": "initial_enquiry",
+          "message": "We cannot process verification enquiries or bookings through this desk channel. Verification policies have changed and require an in-person token or direct portal grievance.",
+          "metadata": {
+            "intent": "unsupported_channel",
+            "reason": "Channel unsupported; direct in-person token required."
+          }
+        }
+      ]
+    }
+  }
+}
+
