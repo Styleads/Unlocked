@@ -75,3 +75,22 @@ async def test_an_unrecognised_answer_is_refused(ctx):
     aid = await add(client, sid, -3)
     res = await client.post(f"/api/sessions/{sid}/appointments/{aid}/outcome", json={"attended": "maybe"})
     assert res.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_a_rejection_is_explained_immediately(ctx):
+    client, sid = ctx
+    # answers that fail the SSP scholarship's verified category and income rules
+    await client.post(f"/api/sessions/{sid}/answers", json={"answers": [
+        {"attribute": "social_category", "state": "answered", "value": "OBC"},
+        {"attribute": "annual_family_income", "state": "answered", "value": {"min": 250001, "max": 500000}},
+    ]})
+    aid = await add(client, sid, -3)
+    res = (await client.post(f"/api/sessions/{sid}/appointments/{aid}/outcome", json={
+        "attended": "yes", "outcome": "rejected", "scheme_id": "fallback-ssp-scst-001", "reason": "Income too high"})).json()
+    wi = res["outcome_details"]["what_if"]
+    assert {f["attribute"] for f in wi["failed"]} >= {"social_category", "annual_family_income"}
+    assert wi["changes"] and all(c["value"] is not None for c in wi["changes"])
+    assert any(s["kind"] == "what_if" for s in res["outcome_details"]["plan"]["next_steps"])
+    direct = (await client.get(f"/api/sessions/{sid}/schemes/fallback-ssp-scst-001/what-if")).json()
+    assert direct["failed"] == wi["failed"]

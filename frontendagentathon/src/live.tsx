@@ -91,6 +91,8 @@ type LiveApi = {
   /** Create the session (once per distinct context) and run discovery. `force` re-runs it. */
   discover: (session: Session, force?: boolean) => Promise<Begin>;
   answer: (q: ApiQuestion, choice: Choice) => Promise<void>;
+  /** Change one answer from outside the Questions page; results and plan are refreshed in place, not blanked. */
+  updateAnswer: (attribute: string, label: string, value: unknown) => Promise<void>;
   loadPlan: () => Promise<void>;
   setDoc: (docId: string, status: string) => Promise<void>;
   email: (schemeId: string, question: string) => Promise<ApiArtifact>;
@@ -202,6 +204,19 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     [requireId],
   );
 
+  const updateAnswer = useCallback<LiveApi["updateAnswer"]>(
+    async (attribute, label, value) => {
+      const id = requireId();
+      const result = await api.answers(id, [{ attribute, state: "answered", value } as AnswerPayload]);
+      setSaved((s) => ({ ...s, answers: { ...s.answers, [attribute]: { label, state: "answered" } } }));
+      setQuestions(result.next_questions);
+      const [fresh, freshPlan] = await Promise.all([api.schemes(id), api.plan(id)]);
+      setSchemes(fresh);
+      setPlan(freshPlan);
+    },
+    [requireId],
+  );
+
   const loadPlan = useCallback(async () => {
     setPlan(await api.plan(requireId()));
   }, [requireId]);
@@ -246,9 +261,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       warnings: saved.warnings,
       selected: saved.selected,
       select: (id) => patch({ selected: id }),
-      discover, answer, loadPlan, setDoc, email, calendar, progress, leave,
+      discover, answer, updateAnswer, loadPlan, setDoc, email, calendar, progress, leave,
     }),
-    [saved, schemes, questions, plan, patch, discover, answer, loadPlan, setDoc, email, calendar, progress, leave],
+    [saved, schemes, questions, plan, patch, discover, answer, updateAnswer, loadPlan, setDoc, email, calendar, progress, leave],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

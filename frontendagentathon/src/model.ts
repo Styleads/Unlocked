@@ -35,6 +35,9 @@ const STATUS: Record<NonNullable<ApiScheme["assessment_status"]>, Status> = {
   unlikely_to_match: "warn",
 };
 
+/** The backend's assessment word as the app's status. */
+export const statusFromApi = (s: string): Status => STATUS[s as keyof typeof STATUS] ?? "unclear";
+
 const PIP: Record<ApiRequirement["status"], Pip> = {
   satisfied: "ok",
   not_satisfied: "no",

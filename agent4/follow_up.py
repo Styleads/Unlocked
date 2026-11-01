@@ -64,6 +64,7 @@ class AppointmentRecord(BaseModel):
     """What the caller knows about one appointment."""
     appointment_id: str
     purpose: str
+    scheme_id: Optional[str] = None  # when the caller knows which scheme it was for
     scheduled_at_utc: Optional[datetime] = None
     status: str = "scheduled"
     location: Optional[str] = None
@@ -92,6 +93,7 @@ class AppointmentFollowUp(BaseModel):
     purpose: str
     scheduled_at_utc: Optional[datetime] = None
     location: Optional[str] = None
+    scheme_id: Optional[str] = None
     question: str
     attended_options: list[Choice]
     outcome_options: list[Choice]
@@ -105,6 +107,8 @@ class AppointmentReport(BaseModel):
     additional_documents: list[str] = Field(default_factory=list)
     rescheduled_date: Optional[str] = None  # a date or date-time the user gave, in Indian time unless it says otherwise
     notes: Optional[str] = None
+    scheme_id: Optional[str] = None  # which scheme it was for, so a rejection can be explained
+    reason: Optional[str] = None  # the reason the office gave, in the user's words
 
     @field_validator("attended", mode="before")
     @classmethod
@@ -179,6 +183,7 @@ def due_follow_ups(
             purpose=a.purpose,
             scheduled_at_utc=a.scheduled_at_utc,
             location=a.location,
+            scheme_id=a.scheme_id,
             question=f"How did it go? {a.purpose}",
             attended_options=_choices(ATTENDED_LABELS),
             outcome_options=_choices(OUTCOME_LABELS),
@@ -292,6 +297,8 @@ def plan_after_appointment(
         later.append(LaterQuestion(field="benefit_received", question="Have you actually received the benefit?", options=["yes", "no", "unknown"]))
     elif o == Outcome.rejected:
         progress += [ProgressUpdate(field="submitted", state="yes", simulated=sim), ProgressUpdate(field="decision", state="rejected", simulated=sim)]
+        if r.scheme_id:
+            steps.append(NextStep(kind="what_if", text="See which of your answers didn't meet the scheme's rules, what would change that, and which schemes already fit you."))
         steps.append(NextStep(kind="recovery", text="Ask for the reason in writing. With the reason, Unlocked can help you see whether a correction, reapplication or appeal is possible."))
     elif o == Outcome.return_scheduled:
         take_new_date()

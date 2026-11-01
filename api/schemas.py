@@ -579,6 +579,8 @@ class AppointmentOutcomeRequest(BaseModel):
     notes: Optional[str] = None
     rescheduled_date: Optional[str] = None
     additional_documents: list[str] = Field(default_factory=list)
+    scheme_id: Optional[str] = None  # which scheme it was for (lets a rejection be explained at once)
+    reason: Optional[str] = Field(default=None, max_length=1000)  # the reason the office gave
 
 
 class AppointmentView(BaseModel):

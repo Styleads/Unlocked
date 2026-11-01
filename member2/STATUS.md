@@ -49,6 +49,9 @@ None open.
 
 ## Session log
 
+### 2026-11-01 (What would change a rejection)
+- `member2/what_if.py` + `GET /schemes/{id}/what-if`; a "rejected" follow-up answer returns it immediately. Frontend: the "How did it go?" card asks which scheme and the reason, then shows what decided it, other answers that would meet each rule with their effect on every scheme, and schemes that already fit; "This is true for me: update my answer" re-assesses in place (`live.updateAnswer`).
+
 ### 2026-11-01 (Demo flow)
 - Email on step 1 (Start page) turns emails on for the session; consent checkbox removed. Office chat runs inline in every Next-steps scheme card: pick the office's response, it auto-plays and confirms. Confirmation -> email now + reminder + follow-up + appointment row (agent4/DECISIONS.md 25-26).
 - Demo fallback: `?fallback=1` in the site URL or `UNLOCKED_FORCE_FALLBACK=1` for the backend.

@@ -16,7 +16,19 @@ const OPTIONS = {
     { value: "documents_accepted", label: "My documents were accepted" },
     { value: "additional_documents_requested", label: "They asked for more documents" },
     { value: "approved", label: "It was approved" },
+    { value: "rejected", label: "It was rejected" },
   ],
+};
+
+const SCHEMES = [{ id: "s1", name: "Demo Scholarship A", summary: "", department: "Dept", government_level: "state", documents: [], application_steps: [], official_sources: [], source_type: "fallback", assessment_status: "unlikely_to_match", assessment_explanation: "", requirements: [], missing_attributes: [] }];
+const WHAT_IF = {
+  scheme_id: "s1", scheme_name: "Demo Scholarship A", status: "unlikely_to_match",
+  failed: [{ requirement_id: "r1", attribute: "annual_family_income", label: "Annual family income", criterion: "Family income up to Rs 2.5 lakh.", your_answer: "₹2.5 lakh – ₹5 lakh", source_url: "https://example.gov.in/a" }],
+  unanswered: [],
+  changes: [{ attribute: "annual_family_income", label: "Annual family income", current: "₹2.5 lakh – ₹5 lakh", proposed: "₹1 lakh – ₹2.5 lakh", value: { min: 100000, max: 250000 }, target_after: "potential_match",
+    effects: [{ scheme_id: "s1", name: "Demo Scholarship A", before: "unlikely_to_match", after: "potential_match" }, { scheme_id: "s2", name: "Demo Scholarship B", before: "unlikely_to_match", after: "potential_match" }] }],
+  all_fixed_status: "potential_match", already_matching: [{ scheme_id: "s3", name: "Demo Scholarship C" }],
+  note: "These are the conditions your answers didn't meet. Change an answer only if it is true for you: applications are checked against your documents.",
 };
 
 /** The backend side of follow-up, shaped like api/main.py + agent4.follow_up. */
@@ -29,7 +41,9 @@ function fakeBackend(due: ApiDueFollowUp[]) {
     const method = (init?.method ?? "GET").toUpperCase();
     const body = init?.body ? JSON.parse(String(init.body)) : undefined;
     calls.push({ method, path, body });
-    if (path.endsWith("/schemes") || path.endsWith("/questions")) return respond(200, []);
+    if (path.endsWith("/schemes")) return respond(200, SCHEMES);
+    if (path.endsWith("/questions")) return respond(200, []);
+    if (path.endsWith("/answers")) return respond(200, { session_id: "sess-1", next_questions: [] });
     if (path.endsWith("/plan")) return respond(200, { checklist: [], nodes: [], edges: [], shared_prerequisites: [], explanation: "Nothing to collect.", warnings: [], excluded_documents: [] });
     if (path.endsWith("/notifications/preferences")) return respond(200, { session_id: "sess-1", email: null, email_enabled: false, categories: {}, timezone: "Asia/Kolkata" });
     if (path.endsWith("/follow-ups")) return respond(200, pending);
@@ -43,7 +57,8 @@ function fakeBackend(due: ApiDueFollowUp[]) {
         next_steps: docs.map((d) => ({ kind: "collect_document", text: `Get: ${d}`, document: d })),
         ask_later: [], documents_to_add: docs, warnings: [],
       };
-      return respond(200, { appointment_id: aid, purpose: "Document verification", timezone: "Asia/Kolkata", status: plan.new_status, outcome_details: { ...body, plan } });
+      const what_if = body.outcome === "rejected" && body.scheme_id ? WHAT_IF : undefined;
+      return respond(200, { appointment_id: aid, purpose: "Document verification", timezone: "Asia/Kolkata", status: plan.new_status, outcome_details: { ...body, plan, what_if } });
     }
     return respond(404, { detail: `no route ${path}` });
   }) as typeof fetch;
@@ -114,6 +129,25 @@ describe("after an appointment", () => {
     fireEvent.click(later[0]);
     expect(screen.getAllByRole("heading", { name: "How did it go?" })).toHaveLength(1);
     expect(backend.calls.some((c) => c.path.endsWith("/outcome"))).toBe(false);
+  });
+
+  it("explains a rejection at once and applies a different answer only when the user says it is true", async () => {
+    openPlan([item("a1")]);
+    fireEvent.click(await screen.findByRole("button", { name: "I went" }));
+    fireEvent.change(screen.getByLabelText("WHAT HAPPENED?"), { target: { value: "rejected" } });
+    fireEvent.change(await screen.findByLabelText("WHICH SCHEME WAS IT FOR?"), { target: { value: "s1" } });
+    fireEvent.change(screen.getByPlaceholderText("In your own words"), { target: { value: "Income above the limit" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText(/you answered ₹2.5 lakh – ₹5 lakh/)).toBeTruthy();
+    expect(screen.getByText("Rule: “Family income up to Rs 2.5 lakh.”")).toBeTruthy();
+    expect(screen.getByText("₹1 lakh – ₹2.5 lakh")).toBeTruthy();
+    expect(screen.getByText(/Demo Scholarship B/)).toBeTruthy(); // the effect on another scheme
+    expect(screen.getByText("Demo Scholarship C")).toBeTruthy(); // already fits
+    expect(backend.calls.find((c) => c.path.endsWith("/outcome"))!.body).toMatchObject({ outcome: "rejected", scheme_id: "s1", reason: "Income above the limit" });
+    expect(backend.calls.some((c) => c.path.endsWith("/answers"))).toBe(false); // nothing changes on its own
+    fireEvent.click(screen.getByRole("button", { name: "This is true for me: update my answer" }));
+    expect(await screen.findByRole("button", { name: "Answer updated" })).toBeTruthy();
+    expect(backend.calls.find((c) => c.path.endsWith("/answers"))!.body).toEqual({ answers: [{ attribute: "annual_family_income", state: "answered", value: { min: 100000, max: 250000 } }] });
   });
 
   it("can't be saved before choosing what happened", async () => {

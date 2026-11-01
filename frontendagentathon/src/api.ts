@@ -157,7 +157,7 @@ export type ApiAppointment = {
   location?: string | null;
   status: string;
   outcome_summary?: string | null;
-  outcome_details?: { plan?: ApiAfterPlan } | null;
+  outcome_details?: { plan?: ApiAfterPlan; what_if?: ApiWhatIf } | null;
 };
 
 export type ApiChoice = { value: string; label: string };
@@ -167,6 +167,7 @@ export type ApiDueFollowUp = {
   purpose: string;
   scheduled_at_utc?: string | null;
   location?: string | null;
+  scheme_id?: string | null;
   question: string;
   attended_options: ApiChoice[];
   outcome_options: ApiChoice[];
@@ -183,7 +184,19 @@ export type ApiAfterPlan = {
   rescheduled_at_utc?: string | null;
   warnings: string[];
 };
-export type AppointmentReport = { attended: string; outcome?: string; additional_documents?: string[]; rescheduled_date?: string; notes?: string };
+export type AppointmentReport = { attended: string; outcome?: string; additional_documents?: string[]; rescheduled_date?: string; notes?: string; scheme_id?: string; reason?: string };
+/** Which answers failed which verified rule, and what a different answer would do (member2.what_if). */
+export type ApiWhatIf = {
+  scheme_id: string;
+  scheme_name: string;
+  status: string;
+  failed: { requirement_id: string; attribute?: string | null; label: string; criterion: string; your_answer?: string | null; source_url?: string | null }[];
+  unanswered: string[];
+  changes: { attribute: string; label: string; current?: string | null; proposed: string; value: unknown; target_after: string; effects: { scheme_id: string; name: string; before: string; after: string }[] }[];
+  all_fixed_status?: string | null;
+  already_matching: { scheme_id: string; name: string }[];
+  note: string;
+};
 
 export type ApiFollowUp = {
   scope_type: "appointment" | "application" | "session";
@@ -310,6 +323,7 @@ export const api = {
   finishOfficeChat: (chatId: string) => post<ApiOfficeChat>(`/api/office-chats/${encodeURIComponent(chatId)}/finish`, {}, 15000),
   officeOutcome: (chatId: string) => request<ApiOfficeOutcome>(`/api/office-chats/${encodeURIComponent(chatId)}/outcome`, { timeoutMs: 15000 }),
   markQuestionSent: (qid: string) => post<ApiUnresolved>(`/api/unresolved-questions/${encodeURIComponent(qid)}/mark-sent`, {}, 15000),
+  whatIf: (id: string, schemeId: string) => request<ApiWhatIf>(`${sid(id)}/schemes/${encodeURIComponent(schemeId)}/what-if`, { timeoutMs: 20000 }),
   dueFollowUps: (id: string) => request<ApiDueFollowUp[]>(`${sid(id)}/follow-ups`, { timeoutMs: 15000 }),
   reportAppointment: (id: string, aid: string, body: AppointmentReport) =>
     post<ApiAppointment>(`${sid(id)}/appointments/${encodeURIComponent(aid)}/outcome`, body, 30000),

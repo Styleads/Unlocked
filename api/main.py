@@ -8,6 +8,7 @@ Consumed by Member 4 (Frontend).
 from __future__ import annotations
 
 import logging
+import asyncio
 import os
 import re
 import uuid
@@ -175,6 +176,7 @@ from api.schemas import (
     UserInputRequest,
 )
 from agent4.follow_up import AppointmentFollowUp, AppointmentReport, due_follow_ups, plan_after_appointment
+from member2.what_if import WhatIf, explore as explore_what_if
 from agent4 import (
     analyse_rejection,
     build_calendar_artifact,
@@ -197,12 +199,38 @@ logger = logging.getLogger("unlocked.api")
 # Lifespan & Application Setup
 # ---------------------------------------------------------------------------
 
+def _demo_minutes() -> Optional[float]:
+    """UNLOCKED_DEMO_APPOINTMENT_MINUTES=2 puts every new appointment that many minutes after it is made, with the
+    reminder halfway before it and the follow-up the same gap after it, so a live demo sees every email. Unset: off."""
+    try:
+        v = float(os.getenv("UNLOCKED_DEMO_APPOINTMENT_MINUTES", "").strip())
+        return v if v > 0 else None
+    except ValueError:
+        return None
+
+
+async def _send_due_emails_forever(every_seconds: float) -> None:
+    """Send whatever has become due (reminders, follow-ups) without waiting for someone to open the app."""
+    while True:
+        await asyncio.sleep(every_seconds)
+        try:
+            await process_due_notifications()
+        except Exception as exc:  # noqa: BLE001 - a failed round must not stop the next one
+            logger.warning("Background email round failed: %s", type(exc).__name__)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize database tables and WAL mode on application startup."""
     await init_db()
     logger.info("Database initialized in WAL mode. Service is operationally ready.")
+    sender = None
+    if _demo_minutes():
+        sender = asyncio.create_task(_send_due_emails_forever(15))
+        logger.info("Demo timing on: appointments %s min after booking; due emails sent every 15 s.", _demo_minutes())
     yield
+    if sender:
+        sender.cancel()
     logger.info("Service shutting down.")
 
 
@@ -1009,11 +1037,14 @@ async def api_create_appointment(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Session '{session_id}' not found.")
 
     appt_id = str(uuid.uuid4())
+    demo = _demo_minutes()
+    if demo:
+        payload.scheduled_at_utc = (now_utc() + timedelta(minutes=demo)).isoformat()
     follow_up_time = None
     if payload.scheduled_at_utc:
         try:
             sch_dt = datetime.fromisoformat(payload.scheduled_at_utc.replace("Z", "+00:00"))
-            follow_up_time = (sch_dt + timedelta(hours=2)).isoformat()
+            follow_up_time = (sch_dt + (timedelta(minutes=demo / 2) if demo else timedelta(hours=2))).isoformat()
         except Exception:
             pass
 
@@ -1054,7 +1085,7 @@ async def api_create_appointment(
                 sch_dt = datetime.fromisoformat(payload.scheduled_at_utc.replace("Z", "+00:00"))
                 curr_now = now_utc()
                 # 24 hours before, or sooner if appointment is in less than 24 hours
-                remind_dt = max(curr_now, sch_dt - timedelta(hours=24))
+                remind_dt = max(curr_now, sch_dt - (timedelta(minutes=demo / 2) if demo else timedelta(hours=24)))
                 if sch_dt > curr_now:
                     subj, html_b, txt_b = render_appointment_reminder_email(
                         purpose=payload.purpose,
@@ -1078,7 +1109,7 @@ async def api_create_appointment(
                     )
 
                 # Post-appointment follow-up email 2 hours after scheduled time
-                post_dt = sch_dt + timedelta(hours=2)
+                post_dt = sch_dt + (timedelta(minutes=demo / 2) if demo else timedelta(hours=2))
                 p_subj, p_html, p_txt = render_appointment_follow_up_email(
                     purpose=payload.purpose,
                     follow_up_url=follow_up_url,
@@ -1172,6 +1203,39 @@ def _appointment_record(r: dict) -> dict:
     }
 
 
+async def _scheme_of_appointment(appt: dict) -> Optional[str]:
+    """The scheme an appointment was for, when it came from an office chat."""
+    task = appt.get("related_task_id") or ""
+    if task.startswith("chat_"):
+        chat = await get_office_chat_session(task[len("chat_"):])
+        return chat.scheme_id if chat else None
+    return None
+
+
+async def _what_if(session_id: str, scheme_id: str) -> Optional[WhatIf]:
+    sess = await get_session(session_id)
+    if not sess:
+        return None
+    return explore_what_if(sess.normalized_schemes, sess.answers, scheme_id)
+
+
+@app.get(
+    "/api/sessions/{session_id}/schemes/{scheme_id}/what-if",
+    response_model=WhatIf,
+    tags=["Schemes"],
+)
+async def api_scheme_what_if(
+    session_id: str = PathParam(..., description="UUID of session"),
+    scheme_id: str = PathParam(..., description="Scheme id"),
+):
+    """Which of the user's answers failed which verified rule, what other answer would meet it, and the effect of that
+    answer on every scheme. Computed by the assessment code; nothing is saved."""
+    result = await _what_if(session_id, scheme_id)
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scheme not found in this session.")
+    return result
+
+
 @app.get(
     "/api/sessions/{session_id}/follow-ups",
     response_model=list[AppointmentFollowUp],
@@ -1184,7 +1248,14 @@ async def api_list_due_follow_ups(
     if not await get_session(session_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Session '{session_id}' not found.")
     rows = await list_appointments(session_id)
-    return due_follow_ups([_appointment_record(r) for r in rows], now=now_utc())
+    records = []
+    for r in rows:
+        rec = _appointment_record(r)
+        if rec["status"] in ("scheduled", "confirmed"):
+            rec["scheme_id"] = await _scheme_of_appointment(r)
+        records.append(rec)
+    demo = _demo_minutes()
+    return due_follow_ups(records, now=now_utc(), **({"length": timedelta(minutes=demo / 2)} if demo else {}))
 
 
 @app.patch(
@@ -1275,6 +1346,8 @@ async def api_submit_appointment_outcome(
         report = AppointmentReport.model_validate(payload.model_dump())
     except Exception as exc:  # noqa: BLE001 - an unknown answer is the caller's mistake, not a server error
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Unrecognised answer: {exc}")
+    if report.scheme_id is None:
+        report.scheme_id = await _scheme_of_appointment(appt)
     plan = plan_after_appointment(_appointment_record(appt), report, now=now_utc())
     attended_status = plan.new_status
     # kept as the reported code (other clients read it); Agent 4's wording is in outcome_details["plan"]
@@ -1282,6 +1355,16 @@ async def api_submit_appointment_outcome(
 
     details = payload.model_dump()
     details["plan"] = plan.model_dump(mode="json")
+    # A rejection is explained straight away: which answers failed which rule, and what would change it.
+    if report.outcome is not None and report.outcome.value == "rejected":
+        scheme_for = payload.scheme_id or await _scheme_of_appointment(appt)
+        if scheme_for:
+            try:
+                wi = await _what_if(session_id, scheme_for)
+                if wi:
+                    details["what_if"] = wi.model_dump(mode="json")
+            except Exception as exc:  # noqa: BLE001 - the explanation is extra; the report is still saved
+                logger.warning("What-if failed for scheme %s: %s", scheme_for, type(exc).__name__)
     moved = plan.rescheduled_at_utc is not None and report.attended.value == "rescheduled"
     updated = await update_appointment(
         appointment_id=appointment_id,
@@ -1914,6 +1997,12 @@ async def _record_confirmed_simulated_appointment(chat_session: OfficeChatSessio
     offer = chat_session.appointment
     if not offer:
         return
+    demo = _demo_minutes()
+    if demo:
+        ist = (now_utc() + timedelta(minutes=demo)).astimezone(timezone(timedelta(hours=5, minutes=30)))
+        if ist.second or ist.microsecond:
+            ist = ist.replace(second=0, microsecond=0) + timedelta(minutes=1)  # shown to the minute, never earlier
+        offer.date, offer.time = ist.date().isoformat(), ist.strftime("%H:%M")
     ics_text = _generate_simulated_ics(scheme, offer)
     if ics_text:
         offer.calendar_ics = ics_text
