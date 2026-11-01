@@ -447,3 +447,13 @@ npm run dev          # http://localhost:5173
 - The flow: Context form -> `POST /api/sessions` -> `POST /discover` -> results (`/schemes`) -> questions (`/questions`, `/answers`) -> plan (`/plan`, `/checklist/{doc}`) -> actions (`/actions/email`, `/actions/calendar`, `/progress`).
 - Without `GEMINI_API_KEY` and `TAVILY_API_KEY` the backend returns only its verified-offline fallback schemes (rules unverified, so no questions). Add the keys to `.env` for live search and AI-assisted drafts.
 - `npm test` runs unit and page-flow tests. `src/real-backend.test.tsx` runs the whole journey against a running backend and skips itself when none is listening.
+
+### Email follow-through
+
+The Plan page has an **Email me my plan and reminders** panel (live mode only), built on the backend's `/notifications` and `/appointments` endpoints:
+
+- Off until the user gives an address **and** ticks the consent box; one button turns everything off and cancels what is queued.
+- Preview the plan email (nothing is sent), send it on request, and see a history of what was sent or is queued (queued reminders go out when the history is refreshed, since the backend has no background scheduler).
+- Add appointments, with an optional reminder email the day before.
+- Links inside emails open `/follow-up/<token>` in the app, where the person can report how an appointment or application went. The token is the only credential. Set `FRONTEND_URL` in the backend's `.env` so those links point at the web app.
+- Sending needs `RESEND_API_KEY` (and `RESEND_FROM_EMAIL`) in the repo-root `.env`. With Resend's test sender, mail only reaches the Resend account's own address; set `DEMO_EMAIL_TO` to route every message to a test inbox.

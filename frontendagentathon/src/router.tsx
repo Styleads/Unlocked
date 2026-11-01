@@ -9,12 +9,14 @@ export type Route =
   | "/questions"
   | "/results"
   | "/scheme"
-  | "/plan";
+  | "/plan"
+  | "/follow-up"; // opened from an email: /follow-up/<token>
 
 const ROUTES: Route[] = ["/", "/start", "/details", "/discovering", "/questions", "/results", "/scheme", "/plan"];
 
 function currentRoute(): Route {
   const path = window.location.pathname.replace(/\/+$/, "") || "/";
+  if (path.startsWith("/follow-up/")) return "/follow-up";
   return (ROUTES as string[]).includes(path) ? (path as Route) : "/";
 }
 

@@ -36,7 +36,14 @@ def get_base_url() -> str:
 
 
 def format_follow_up_url(raw_token: str) -> str:
-    """Construct full follow-up link that takes citizen to scoped update page."""
+    """Construct full follow-up link that takes citizen to scoped update page.
+
+    With FRONTEND_URL set the link opens the web app's follow-up page (`/follow-up/<token>`); without it the link is
+    the API endpoint itself, as before.
+    """
+    frontend = os.getenv("FRONTEND_URL", "").strip().rstrip("/")
+    if frontend:
+        return f"{frontend}/follow-up/{raw_token}"
     return f"{get_base_url()}/api/follow-up/{raw_token}"
 
 

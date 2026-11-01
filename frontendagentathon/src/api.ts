@@ -109,6 +109,70 @@ export type ApiProgress = { summary: string; warnings: string[]; follow_ups: { i
 
 export type AnswerPayload = { attribute: string; state: "answered" | "skipped" | "unknown" | "prefer_not_to_answer"; value?: unknown };
 
+
+// ---- Email follow-through (notifications, appointments, follow-up links) ----
+
+export type ApiPrefs = {
+  session_id: string;
+  email?: string | null;
+  email_enabled: boolean;
+  categories: Record<string, boolean>;
+  consent_at?: string | null;
+  disabled_at?: string | null;
+  timezone: string;
+};
+
+export type ApiEmailPreview = {
+  to_email: string;
+  subject: string;
+  body_text: string;
+  body_html: string;
+  schemes_included: string[];
+  checklist_tasks: string[];
+  follow_up_url?: string | null;
+};
+
+export type ApiSendResult = { notification_id: string; status: string; provider: string; recipient: string; sent_at?: string | null };
+
+export type ApiNotification = {
+  notification_id: string;
+  notification_type: string;
+  recipient: string;
+  subject: string;
+  scheduled_at_utc?: string | null;
+  status: string;
+  sent_at_utc?: string | null;
+  last_error?: string | null;
+  is_demo: boolean;
+  created_at: string;
+};
+
+export type ApiAppointment = {
+  appointment_id: string;
+  purpose: string;
+  scheduled_at_utc?: string | null;
+  timezone: string;
+  location?: string | null;
+  status: string;
+  outcome_summary?: string | null;
+};
+
+export type ApiFollowUp = {
+  scope_type: "appointment" | "application" | "session";
+  scheme_name?: string | null;
+  appointment?: ApiAppointment | null;
+  application?: { application_id: string; scheme_id: string; status: string } | null;
+  expires_at: string;
+};
+
+export type ApiOutcome = {
+  attended?: string;
+  outcome?: string;
+  application_status?: string;
+  notes?: string;
+  additional_documents?: string[];
+};
+
 // ---- Transport ----
 
 async function request<T>(path: string, init?: RequestInit & { timeoutMs?: number }): Promise<T> {
@@ -161,4 +225,22 @@ export const api = {
     post<ApiArtifact>(`${sid(id)}/actions/calendar`, body, 30000),
   progress: (id: string, schemeId: string, updates: { field: string; state: string }[]) =>
     post<ApiProgress>(`${sid(id)}/progress`, { scheme_id: schemeId, updates }, 30000),
+  // email follow-through (the user opts in explicitly; nothing is sent without it)
+  prefs: (id: string) => request<ApiPrefs>(`${sid(id)}/notifications/preferences`, { timeoutMs: 15000 }),
+  savePrefs: (id: string, body: { email: string | null; email_enabled: boolean; categories: Record<string, boolean>; consent_version: string; timezone?: string }) =>
+    post<ApiPrefs>(`${sid(id)}/notifications/preferences`, body, 15000),
+  previewPlanEmail: (id: string) => post<ApiEmailPreview>(`${sid(id)}/notifications/action-plan/preview`, {}, 30000),
+  sendPlanEmail: (id: string) => post<ApiSendResult>(`${sid(id)}/notifications/action-plan/send`, { confirmed: true }, 60000),
+  notifications: (id: string) => request<ApiNotification[]>(`${sid(id)}/notifications`, { timeoutMs: 30000 }),
+  cancelNotification: (id: string, nid: string) => post<{ cancelled: boolean }>(`${sid(id)}/notifications/${encodeURIComponent(nid)}/cancel`, {}, 15000),
+  disableNotifications: (id: string) => post<{ disabled: boolean }>(`${sid(id)}/notifications/disable`, {}, 15000),
+  appointments: (id: string) => request<ApiAppointment[]>(`${sid(id)}/appointments`, { timeoutMs: 15000 }),
+  createAppointment: (id: string, body: { purpose: string; scheduled_at_utc?: string; location?: string; remind_email: boolean; timezone?: string }) =>
+    post<ApiAppointment>(`${sid(id)}/appointments`, body, 30000),
+  updateAppointment: (id: string, aid: string, body: { status: string }) =>
+    request<ApiAppointment>(`${sid(id)}/appointments/${encodeURIComponent(aid)}`, { method: "PATCH", body: JSON.stringify(body), timeoutMs: 15000 }),
+  // the page behind the link in an email: it needs only the link's token, not a session
+  followUp: (token: string) => request<ApiFollowUp>(`/api/follow-up/${encodeURIComponent(token)}`, { timeoutMs: 15000 }),
+  followUpOutcome: (token: string, body: ApiOutcome) => post<unknown>(`/api/follow-up/${encodeURIComponent(token)}/outcome`, body, 20000),
 };
+

@@ -8,7 +8,7 @@ import type { ApiPlan, ApiQuestion, ApiScheme } from "./api";
 beforeAll(installBrowserShims);
 
 /** A fake backend that answers the way api/main.py does (shapes taken from real responses). */
-function fakeBackend(opts: { discoverStatus?: number; extraQuestion?: boolean } = {}) {
+function fakeBackend(opts: { discoverStatus?: number; extraQuestion?: boolean; fallbackFirst?: boolean; sendFails?: boolean } = {}) {
   const calls: { method: string; path: string; body: unknown }[] = [];
   const requirements = (income: "unknown" | "satisfied" | "not_satisfied") => [
     { requirement_id: "s1_req_1", attribute: "education_level", status: "satisfied", reason: "Your answer meets this rule.", criterion: "Must be an undergraduate student.", source_url: "https://example.gov.in/s1" },
@@ -47,6 +47,10 @@ function fakeBackend(opts: { discoverStatus?: number; extraQuestion?: boolean } 
     shared_prerequisites: [], explanation: "1 document covers the scheme you can act on now.", warnings: [], excluded_documents: [],
   });
 
+  let discoverRuns = 0;
+  let prefs: Record<string, unknown> = { session_id: "sess-1", email: null, email_enabled: false, categories: {}, timezone: "Asia/Kolkata" };
+  const notifs: Record<string, unknown>[] = [];
+  const appts: Record<string, unknown>[] = [];
   let income: "unknown" | "satisfied" | "not_satisfied" = "unknown";
   let have = false;
   const respond = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -59,7 +63,7 @@ function fakeBackend(opts: { discoverStatus?: number; extraQuestion?: boolean } 
     if (method === "POST" && path === "/api/sessions") return respond(201, { session_id: "sess-1", status: "initialized" });
     if (path.endsWith("/discover")) {
       if (opts.discoverStatus && opts.discoverStatus !== 200) return respond(opts.discoverStatus, { detail: "Discovery pipeline failed: upstream timeout" });
-      return respond(200, { session_id: "sess-1", total_schemes: 2, schemes: scheme(income), questions: asked(), source_mode: "live_search", warnings: [] });
+      return respond(200, { session_id: "sess-1", total_schemes: 2, schemes: scheme(income), questions: asked(), source_mode: opts.fallbackFirst && discoverRuns++ === 0 ? "fallback" : "live_search", warnings: [] });
     }
     if (path.endsWith("/schemes")) return respond(200, scheme(income));
     if (path.endsWith("/questions")) return respond(200, income === "unknown" ? asked() : []);
@@ -70,6 +74,27 @@ function fakeBackend(opts: { discoverStatus?: number; extraQuestion?: boolean } 
     }
     if (path.endsWith("/plan")) return respond(200, plan(have));
     if (path.includes("/checklist/")) { have = body.status === "have"; return respond(200, plan(have)); }
+    if (path.endsWith("/notifications/preferences")) {
+      if (method === "POST") prefs = { ...prefs, ...body, session_id: "sess-1", consent_at: "2026-11-01T02:00:00Z" };
+      return respond(200, prefs);
+    }
+    if (path.endsWith("/notifications/action-plan/preview")) return respond(200, { to_email: String(prefs.email), subject: "Your Unlocked Action Plan", body_text: "Hello,\n\nHere is your plan.", body_html: "<p>Hello</p>", schemes_included: ["Fictional Merit Scholarship"], checklist_tasks: ["Income Certificate"], follow_up_url: "http://localhost:5173/follow-up/abc" });
+    if (path.endsWith("/notifications/action-plan/send")) {
+      if (!prefs.email_enabled) return respond(400, { detail: "Cannot send: user has not opted in to email notifications." });
+      notifs.push({ notification_id: "n1", notification_type: "action_plan_summary", recipient: prefs.email, subject: "Your Unlocked Action Plan", status: opts.sendFails ? "failed" : "sent", last_error: opts.sendFails ? "Resend rejected the sender address." : null, sent_at_utc: "2026-11-01T02:05:00Z", is_demo: false, created_at: "2026-11-01T02:05:00Z" });
+      return respond(200, { notification_id: "n1", status: opts.sendFails ? "failed" : "sent", provider: "resend", recipient: prefs.email });
+    }
+    if (path.endsWith("/notifications/disable")) { prefs = { ...prefs, email_enabled: false }; return respond(200, { disabled: true }); }
+    if (path.includes("/notifications/") && path.endsWith("/cancel")) return respond(200, { cancelled: true });
+    if (path.endsWith("/notifications")) return respond(200, notifs);
+    if (path.endsWith("/appointments") && method === "POST") { appts.push({ appointment_id: "a1", purpose: body.purpose, scheduled_at_utc: body.scheduled_at_utc ?? null, location: body.location ?? null, status: "scheduled", timezone: "Asia/Kolkata" }); return respond(200, appts[appts.length - 1]); }
+    if (path.endsWith("/appointments")) return respond(200, appts);
+    if (path.includes("/appointments/") && method === "PATCH") { appts[0] = { ...appts[0], status: body.status }; return respond(200, appts[0]); }
+    if (path.startsWith("/api/follow-up/")) {
+      if (path.includes("expired")) return respond(410, { detail: "This follow-up link has expired." });
+      if (path.endsWith("/outcome")) return respond(200, { updated: true });
+      return respond(200, { scope_type: "appointment", scheme_name: null, appointment: { appointment_id: "a1", purpose: "Document verification", scheduled_at_utc: "2026-11-10T05:00:00Z", location: "Taluk office", status: "scheduled", timezone: "Asia/Kolkata" }, expires_at: "2026-11-15T00:00:00Z" });
+    }
     if (path.endsWith("/progress")) return respond(200, { summary: "You reported that you submitted the application.", warnings: [], follow_ups: [] });
     if (path.endsWith("/actions/email")) return respond(200, { status: "ready", title: "Email", subject: "Query about Fictional Merit Scholarship", body_content: "Dear Sir or Madam,\n\nWhich documents are required?\n\n[Your name]", instructions: "", missing_fields: [], warnings: ["We don't have a verified email address for this department."], generated_by: "template", target_destination: null });
     if (path.endsWith("/actions/calendar")) return respond(200, { status: "ready", title: "Deadline", body_content: "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n", filename: "s1.ics", instructions: "", missing_fields: [], warnings: [], generated_by: "template" });
@@ -212,6 +237,152 @@ describe("questions the backend stops asking", () => {
     expect(await screen.findByText(/1 other question isn't needed any more/)).toBeTruthy();
     expect(screen.queryByText("Which best describes your work situation?")).toBeNull();
     expect(screen.getByText("What's your family's annual income?")).toBeTruthy(); // the answered one stays
+  });
+});
+
+describe("offline results from a search that failed", () => {
+  it("shows a notice with a Search again button that re-runs discovery and clears the notice", async () => {
+    backend = fakeBackend({ fallbackFirst: true });
+    globalThis.fetch = backend.fetchImpl;
+    await runDiscovery();
+    fireEvent.click(screen.getAllByRole("link", { name: /Continue/ })[0]);
+    fireEvent.click(screen.getByRole("link", { name: /See my results/ }));
+    expect(await screen.findByText(/Live search had trouble/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Search again" }));
+    await waitFor(() => expect(screen.queryByText(/Live search had trouble/)).toBeNull());
+    expect(backend.calls.filter((c) => c.path.endsWith("/discover"))).toHaveLength(2);
+    expect(backend.calls.filter((c) => c.path === "/api/sessions" && c.method === "POST")).toHaveLength(1); // same session, searched again
+  });
+
+  it("searches again by itself when the Search page is opened with offline results", async () => {
+    backend = fakeBackend({ fallbackFirst: true });
+    globalThis.fetch = backend.fetchImpl;
+    await runDiscovery();
+    cleanup();
+    open("/discovering");
+    await screen.findByRole("link", { name: /Continue/ });
+    await waitFor(() => expect(backend.calls.filter((c) => c.path.endsWith("/discover"))).toHaveLength(2));
+  });
+});
+
+
+const openPlan = async () => {
+  await runDiscovery();
+  window.history.pushState({}, "", "/plan");
+  cleanup();
+  render(<App />);
+  await screen.findByText("Email me my plan and reminders.");
+};
+const optIn = async (address = "me@example.com") => {
+  fireEvent.change(screen.getByLabelText("YOUR EMAIL ADDRESS"), { target: { value: address } });
+  fireEvent.click(screen.getByRole("checkbox", { name: /Yes, email me my plan/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Turn on emails" }));
+  await screen.findByText("Emails on");
+};
+const prefPosts = () => backend.calls.filter((c) => c.path.endsWith("/notifications/preferences") && c.method === "POST");
+
+describe("email follow-through", () => {
+  it("is off until the user opts in with an address and consent", async () => {
+    await openPlan();
+    expect(screen.getByText("Emails off")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Send it to me now/ })).toBeNull();
+    // no consent ticked: nothing is saved
+    fireEvent.change(screen.getByLabelText("YOUR EMAIL ADDRESS"), { target: { value: "me@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Turn on emails" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("Tick the box to let us email you.");
+    expect(prefPosts()).toHaveLength(0);
+    // a bad address is rejected too
+    fireEvent.click(screen.getByRole("checkbox", { name: /Yes, email me my plan/ }));
+    fireEvent.change(screen.getByLabelText("YOUR EMAIL ADDRESS"), { target: { value: "not-an-email" } });
+    fireEvent.click(screen.getByRole("button", { name: "Turn on emails" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("Enter a valid email address."));
+    expect(prefPosts()).toHaveLength(0);
+  });
+
+  it("saves the opt-in with consent and the reminder choice", async () => {
+    await openPlan();
+    await optIn();
+    const saved = prefPosts()[0].body as Record<string, unknown>;
+    expect(saved).toMatchObject({ email: "me@example.com", email_enabled: true, consent_version: "v1" });
+    expect(saved.categories).toEqual({ action_plan_summary: true, appointment_reminders: true, appointment_follow_up: true });
+    expect(screen.getByText("me@example.com")).toBeTruthy();
+  });
+
+  it("previews the email without sending anything", async () => {
+    await openPlan();
+    await optIn();
+    fireEvent.click(screen.getByRole("button", { name: /Preview the email/ }));
+    expect(await screen.findByText("PREVIEW · NOT SENT")).toBeTruthy();
+    expect(screen.getByText("Your Unlocked Action Plan")).toBeTruthy();
+    expect(backend.calls.some((c) => c.path.endsWith("/action-plan/send"))).toBe(false);
+  });
+
+  it("sends the plan once, on request, and lists it in the history", async () => {
+    await openPlan();
+    await optIn();
+    fireEvent.click(screen.getByRole("button", { name: /Send it to me now/ }));
+    expect(await screen.findByText(/Sent to me@example.com/)).toBeTruthy();
+    expect(backend.calls.filter((c) => c.path.endsWith("/action-plan/send"))).toHaveLength(1);
+    expect((await screen.findAllByText("Your plan")).length).toBeGreaterThan(0); // history row
+  });
+
+  it("shows why a send failed instead of claiming success", async () => {
+    backend = fakeBackend({ sendFails: true });
+    globalThis.fetch = backend.fetchImpl;
+    await openPlan();
+    await optIn();
+    fireEvent.click(screen.getByRole("button", { name: /Send it to me now/ }));
+    await waitFor(() => expect(screen.getAllByRole("alert").some((a) => a.textContent === "Resend rejected the sender address.")).toBe(true));
+    expect(screen.queryByText(/Sent to me@example.com/)).toBeNull();
+  });
+
+  it("turns everything off with one button", async () => {
+    await openPlan();
+    await optIn();
+    fireEvent.click(screen.getByRole("button", { name: /Turn off all emails/ }));
+    expect(await screen.findByText("Emails off")).toBeTruthy();
+    expect(backend.calls.some((c) => c.path.endsWith("/notifications/disable"))).toBe(true);
+  });
+
+  it("adds an appointment, asking for a reminder only once emails are on", async () => {
+    await openPlan();
+    expect((screen.getByRole("checkbox", { name: /Turn on emails to get a reminder/ }) as HTMLInputElement).disabled).toBe(true);
+    await optIn();
+    fireEvent.change(screen.getByLabelText("WHAT IS IT FOR?"), { target: { value: "Document verification" } });
+    fireEvent.change(screen.getByLabelText("When"), { target: { value: "2026-12-01T10:30" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add appointment" }));
+    expect(await screen.findByText("Document verification")).toBeTruthy();
+    const sent = backend.calls.find((c) => c.path.endsWith("/appointments") && c.method === "POST")!.body as Record<string, unknown>;
+    expect(sent).toMatchObject({ purpose: "Document verification", remind_email: true });
+    expect(new Date(String(sent.scheduled_at_utc)).toISOString()).toBe(sent.scheduled_at_utc); // a real ISO instant
+  });
+
+  it("is not shown without a backend", async () => {
+    globalThis.fetch = (() => Promise.reject(new TypeError("offline"))) as typeof fetch;
+    open("/plan");
+    await screen.findByRole("heading", { name: "Your document plan." });
+    expect(screen.queryByText("Email me my plan and reminders.")).toBeNull();
+  });
+});
+
+describe("follow-up link from an email", () => {
+  it("opens the page for that link, with no session, and records the update", async () => {
+    sessionStorage.clear();
+    open("/follow-up/abc123");
+    expect(await screen.findByRole("heading", { name: "How did your appointment go?" })).toBeTruthy();
+    expect(screen.getByText("Document verification")).toBeTruthy();
+    expect(backend.calls.some((c) => c.path === "/api/follow-up/abc123")).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "I missed it" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save my update" }));
+    expect(await screen.findByText(/that's saved/i)).toBeTruthy();
+    const out = backend.calls.find((c) => c.path === "/api/follow-up/abc123/outcome")!.body as Record<string, unknown>;
+    expect(out).toEqual({ attended: "missed" });
+  });
+
+  it("explains an expired link", async () => {
+    open("/follow-up/expired-token");
+    expect(await screen.findByText(/This link has expired/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Save my update" })).toBeNull();
   });
 });
 

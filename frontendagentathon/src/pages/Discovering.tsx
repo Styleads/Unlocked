@@ -20,6 +20,7 @@ export default function Discovering() {
   const [error, setError] = useState(startsInError);
   const [errorDetail, setErrorDetail] = useState("");
   const timers = useRef<number[]>([]);
+  const [elapsed, setElapsed] = useState(0);
   // run() must stay stable: the latest session and live store are read through refs
   const latest = useRef({ session, live });
   latest.current = { session, live };
@@ -43,11 +44,23 @@ export default function Discovering() {
   }, []);
 
   useEffect(() => {
-    if (!error) run();
+    // Coming back here with offline results from an earlier session (live search had failed) searches again.
+    if (!error) run(latest.current.live.sourceMode === "fallback");
     return () => timers.current.forEach(clearTimeout);
   }, [error, run]);
 
   const retry = () => (error ? setError(false) : run(true));
+
+  // A real search takes a minute with nothing finishing in between, so show that it is still working.
+  const done0 = !error && phase >= 3;
+  useEffect(() => {
+    if (done0 || error) return;
+    setElapsed(0);
+    const id = window.setInterval(() => setElapsed((n) => n + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [done0, error]);
+  const waiting = !error && phase === 0 && elapsed >= 4;
+  const clock = `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, "0")}`;
   const found = live.active ? live.schemes.length : SCHEMES.length;
   const done = !error && phase >= 3;
 
@@ -113,7 +126,13 @@ export default function Discovering() {
                 );
               })}
             </div>
-            <div className="bar" role="progressbar" aria-label="Discovery progress" aria-valuemin={0} aria-valuemax={3} aria-valuenow={phase}>
+            {waiting && (
+              <p role="status" className="rise" style={{ fontSize: 14, color: "var(--muted)", margin: 0 }}>
+                <span className="mono" style={{ color: "var(--primary-dark)" }}>{clock}</span>{" "}
+                Still working. We search official sites, then read each page and its rules. That usually takes 30 to 60 seconds, and longer when a source is slow.
+              </p>
+            )}
+            <div className={waiting ? "bar indet" : "bar"} role="progressbar" aria-label="Discovery progress" aria-valuemin={0} aria-valuemax={3} aria-valuenow={phase}>
               <i style={{ width: `${Math.round((phase / 3) * 100)}%` }} />
             </div>
             {/* Always laid out, only hidden until done: the column keeps one height, so the vertically

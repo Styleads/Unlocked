@@ -66,6 +66,6 @@ describe.skipIf(!up)("real backend", () => {
 
     const g = screen.getAllByRole("group", { name: /Application progress for/ })[0];
     fireEvent.click(within(g).getByRole("button", { name: /Submitted/ }));
-    await screen.findByText(/You reported that you submitted the application/, undefined, { timeout: 10000 });
+    await screen.findByText(/You reported that you submitted the application/, undefined, { timeout: 25000 });
   }, 300000); // a live search with real sources can take a minute or more
 });

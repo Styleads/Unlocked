@@ -18,6 +18,17 @@ export default function Results() {
   const live = useLive();
   const [filter, setFilter] = useState<Filter>("all");
   const [showUnlikely, setShowUnlikely] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState("");
+
+  // A session that was searched while the live sources were failing keeps its offline results until searched again.
+  const searchAgain = async () => {
+    setSearching(true);
+    setSearchError("");
+    const r = await live.discover(session, true);
+    setSearching(false);
+    if (!r.ok) setSearchError(r.message);
+  };
   const hasAnswers = Object.values(session.answers).some((a) => a !== undefined);
 
   // Everything below comes from one list of schemes (the backend's when connected, else the demo
@@ -50,7 +61,7 @@ export default function Results() {
         <div className="row-between" style={{ alignItems: "flex-end", gap: 24 }}>
           <div className="stack" style={{ gap: 12 }}>
             <span className="eyebrow rise">_ Step 3 of 4 · Results</span>
-            <h1 className="serif display rise d1">We found {evals.length} schemes.</h1>
+            <h1 className="serif display rise d1">We found {evals.length} {evals.length === 1 ? "scheme" : "schemes"}.</h1>
             <p className="lede rise d2">Sorted by how well your answers fit. Every card links to its official source.</p>
           </div>
           <PrimaryLink to="/plan" className="rise d2">Build my document plan</PrimaryLink>
@@ -61,7 +72,13 @@ export default function Results() {
             <TriangleAlert size={20} color="var(--warn-text)" aria-hidden style={{ flex: "none" }} />
             <span style={{ fontSize: 15 }}>
               <strong style={{ fontWeight: 600 }}>Live search had trouble.</strong> Showing limited results. Schemes from fallback data are clearly tagged.{live.active && live.warnings.length > 0 && ` ${live.warnings[0]}`}
+              {searchError && <span style={{ display: "block", marginTop: 4, color: "var(--warn-text)" }}>{searchError}</span>}
             </span>
+            {live.active && live.sourceMode === "fallback" && (
+              <button className="btn-ghost" style={{ marginLeft: "auto", background: "var(--surface)" }} onClick={searchAgain} disabled={searching}>
+                {searching ? "Searching… this can take a minute" : "Search again"}
+              </button>
+            )}
           </div>
         )}
 
@@ -69,7 +86,7 @@ export default function Results() {
           <div className="card stack" style={{ padding: 22, gap: 18 }}>
             <div className="row-between">
               <span style={{ fontSize: 15, fontWeight: 600 }}>Status breakdown</span>
-              <span className="mono" style={{ fontSize: 12, color: "var(--faint)" }}>{evals.length} SCHEMES</span>
+              <span className="mono" style={{ fontSize: 12, color: "var(--faint)" }}>{evals.length} {evals.length === 1 ? "SCHEME" : "SCHEMES"}</span>
             </div>
             <div style={{ display: "flex", gap: 4 }} role="img" aria-label={`${counts.ok} potential match, ${counts.info} need more info, ${counts.nv + counts.unclear} not verified or uncertain, ${counts.warn} unlikely`}>
               <div className="seg s1" style={{ flex: counts.ok, background: "var(--primary)" }} />

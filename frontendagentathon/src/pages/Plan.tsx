@@ -6,6 +6,7 @@ import { useLive } from "../live";
 import { planFromApi, planFromDemo } from "../model";
 import type { DocStatus } from "../data";
 import NextSteps from "./NextSteps";
+import EmailMe from "./EmailMe";
 import DepGraph from "./DepGraph";
 
 const CHOICES: [DocStatus, string][] = [["needed", "Needed"], ["have", "I have it"], ["obtained", "Obtained"]];
@@ -99,6 +100,7 @@ export default function Plan() {
               )}
             </span>
             <a className="btn-ghost" href="#next" style={{ background: "var(--surface)", color: "var(--text)" }}>{allReady ? "Start applying" : "Jump to next steps"}</a>
+            {active && <a className="btn-ghost" href="#email" style={{ background: "var(--surface)", color: "var(--text)" }}>Email me this plan</a>}
           </div>
         )}
 
@@ -163,6 +165,7 @@ export default function Plan() {
         )}
 
         <NextSteps plan={plan} isReady={isReady} />
+        <EmailMe />
       </main>
       <Disclaimer />
     </div>

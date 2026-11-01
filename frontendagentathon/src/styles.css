@@ -866,3 +866,8 @@ textarea.inp { padding: 14px 16px; min-height: 112px; resize: vertical; }
 
 /* On a phone the diagram would shrink to unreadable text; each document card already lists its schemes. */
 @media (max-width: 520px) { .plan-aside > .card:first-child { display: none; } }
+
+/* Indeterminate progress while a long, unmeasurable step runs. */
+.bar.indet i { width: 35% !important; animation: indet 1.6s ease-in-out infinite; }
+@keyframes indet { 0% { transform: translateX(-110%); } 100% { transform: translateX(300%); } }
+@media (prefers-reduced-motion: reduce) { .bar.indet i { animation: none; width: 100% !important; opacity: 0.4; } }
