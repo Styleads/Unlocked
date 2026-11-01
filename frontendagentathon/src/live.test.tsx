@@ -8,7 +8,7 @@ import type { ApiPlan, ApiQuestion, ApiScheme } from "./api";
 beforeAll(installBrowserShims);
 
 /** A fake backend that answers the way api/main.py does (shapes taken from real responses). */
-function fakeBackend(opts: { discoverStatus?: number } = {}) {
+function fakeBackend(opts: { discoverStatus?: number; extraQuestion?: boolean } = {}) {
   const calls: { method: string; path: string; body: unknown }[] = [];
   const requirements = (income: "unknown" | "satisfied" | "not_satisfied") => [
     { requirement_id: "s1_req_1", attribute: "education_level", status: "satisfied", reason: "Your answer meets this rule.", criterion: "Must be an undergraduate student.", source_url: "https://example.gov.in/s1" },
@@ -35,6 +35,11 @@ function fakeBackend(opts: { discoverStatus?: number } = {}) {
     options: [], ranges: [{ label: "Under ₹2.5 lakh", min: 0, max: 250000 }, { label: "Above ₹2.5 lakh", min: 250001, max: null }],
     why_asked: "One scheme sets an income limit.", related_scheme_ids: ["s1"], sensitivity: "high", allow_prefer_not_to_answer: true,
   };
+  const second: ApiQuestion = {
+    id: "q_employment_status", attribute: "employment_status", question: "Which best describes your work situation?", input_type: "select",
+    options: ["Student", "Employed"], ranges: [], why_asked: "One scheme asks about work.", related_scheme_ids: ["s1"], sensitivity: "low", allow_prefer_not_to_answer: false,
+  };
+  const asked = () => [question, ...(opts.extraQuestion ? [second] : [])];
   const plan = (have: boolean): ApiPlan => ({
     checklist: [{ id: "doc_income_certificate", name: "Income Certificate", status: have ? "have" : "needed", order: 1, required_by_scheme_ids: ["s1"], dependencies: [], source_urls: ["https://example.gov.in/s1"], reason: "Needed for 1 scheme: Fictional Merit Scholarship." }],
     nodes: [{ id: "doc_income_certificate", label: "Income Certificate", kind: "document" }, { id: "s1", label: "Fictional Merit Scholarship", kind: "scheme" }],
@@ -54,10 +59,10 @@ function fakeBackend(opts: { discoverStatus?: number } = {}) {
     if (method === "POST" && path === "/api/sessions") return respond(201, { session_id: "sess-1", status: "initialized" });
     if (path.endsWith("/discover")) {
       if (opts.discoverStatus && opts.discoverStatus !== 200) return respond(opts.discoverStatus, { detail: "Discovery pipeline failed: upstream timeout" });
-      return respond(200, { session_id: "sess-1", total_schemes: 2, schemes: scheme(income), questions: [question], source_mode: "live_search", warnings: [] });
+      return respond(200, { session_id: "sess-1", total_schemes: 2, schemes: scheme(income), questions: asked(), source_mode: "live_search", warnings: [] });
     }
     if (path.endsWith("/schemes")) return respond(200, scheme(income));
-    if (path.endsWith("/questions")) return respond(200, income === "unknown" ? [question] : []);
+    if (path.endsWith("/questions")) return respond(200, income === "unknown" ? asked() : []);
     if (path.endsWith("/answers")) {
       const a = body.answers[0];
       income = a.state !== "answered" ? "unknown" : a.value.max !== null && a.value.max <= 250000 ? "satisfied" : "not_satisfied";
@@ -192,6 +197,21 @@ describe("connected to a backend", () => {
     cleanup();
     open("/results");
     expect(await screen.findByRole("heading", { name: "Fictional Merit Scholarship" })).toBeTruthy();
+  });
+});
+
+describe("questions the backend stops asking", () => {
+  it("explains why the other questions disappear after an answer settles them", async () => {
+    backend = fakeBackend({ extraQuestion: true });
+    globalThis.fetch = backend.fetchImpl;
+    await runDiscovery();
+    fireEvent.click(screen.getAllByRole("link", { name: /Continue/ })[0]);
+    expect(await screen.findByText("Which best describes your work situation?")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Under ₹2.5 lakh" }));
+    // the fake backend (like the real one) now reports nothing left to ask
+    expect(await screen.findByText(/1 other question isn't needed any more/)).toBeTruthy();
+    expect(screen.queryByText("Which best describes your work situation?")).toBeNull();
+    expect(screen.getByText("What's your family's annual income?")).toBeTruthy(); // the answered one stays
   });
 });
 

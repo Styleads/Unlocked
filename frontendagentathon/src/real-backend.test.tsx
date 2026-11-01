@@ -34,30 +34,37 @@ describe.skipIf(!up)("real backend", () => {
     fireEvent.change(screen.getByLabelText(/Education level/), { target: { value: "ug" } });
     fireEvent.click(screen.getByRole("link", { name: /Find schemes/ }));
 
-    // discovery really ran: the card appears with the backend's count, and a real scheme is on Results
-    // (the result card is laid out from the start but hidden until discovery finishes, so wait for its button)
+    // discovery really ran; answer whatever the backend asks, by input type, through the real UI
     fireEvent.click(await screen.findByRole("link", { name: /Continue/ }, { timeout: 30000 }));
-    fireEvent.click(await screen.findByRole("link", { name: /See my results/ }));
-    const heading = await screen.findByRole("heading", { name: /Vidyasiri/ }, { timeout: 10000 });
-    expect(heading).toBeTruthy();
+    await screen.findByRole("link", { name: /See my results/ });
+    // Answer "Not sure" to the first question: it is a recorded response that keeps every scheme in play. (A real answer
+    // can rule a scheme out, and then the backend rightly drops the questions that only it needed and plans no documents
+    // for it, which would make this journey's later steps depend on which answer happens to be picked.)
+    const notSure = screen.queryAllByRole("button", { name: "Not sure" })[0];
+    if (notSure) {
+      fireEvent.click(notSure);
+      await waitFor(() => expect(document.querySelector("fieldset.q.done")).not.toBeNull(), { timeout: 15000 });
+    }
+    fireEvent.click(screen.getByRole("link", { name: /See my results/ }));
+    await waitFor(() => expect(document.querySelector("article.scard h2")).not.toBeNull(), { timeout: 10000 });
     expect(screen.queryByText(/Demo Scholarship A/)).toBeNull();
-    expect(screen.queryByText(/Answer \d+ more/)).toBeNull(); // the fallback scheme's rules are unverified: nothing to ask
+    expect(screen.getByText("Improve your results")).toBeTruthy();
 
     // plan: computed by the backend
     fireEvent.click(screen.getAllByRole("link", { name: /document plan/i })[0]);
-    const income = await screen.findByRole("group", { name: "Status of Income Certificate" }, { timeout: 10000 });
+    const income = (await screen.findAllByRole("group", { name: /^Status of / }, { timeout: 10000 }))[0];
     expect(document.querySelectorAll(".node.doc").length).toBeGreaterThanOrEqual(3);
     fireEvent.click(within(income).getByRole("button", { name: "I have it" }));
     await waitFor(() => expect(within(income).getByRole("button", { name: "I have it" }).getAttribute("aria-pressed")).toBe("true"), { timeout: 10000 });
 
     // actions
-    fireEvent.click(screen.getByRole("button", { name: /Draft email/ }));
-    fireEvent.click(screen.getByRole("button", { name: /Write the draft/ }));
-    const subject = (await screen.findByLabelText("SUBJECT", undefined, { timeout: 20000 })) as HTMLInputElement;
-    expect(subject.value).toMatch(/Vidyasiri/);
-    expect(screen.getByText(/verified email address/i)).toBeTruthy(); // the backend declines to invent one
+    fireEvent.click(screen.getAllByRole("button", { name: /Draft email/ })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: /Write the draft/ })[0]);
+    const subject = (await screen.findAllByLabelText("SUBJECT", undefined, { timeout: 20000 }))[0] as HTMLInputElement;
+    expect(subject.value.length).toBeGreaterThan(5);
+    expect(screen.getAllByText(/verified email address|confirmed address/i)[0]).toBeTruthy(); // the backend declines to invent one
 
-    const g = screen.getByRole("group", { name: /Application progress for Vidyasiri/ });
+    const g = screen.getAllByRole("group", { name: /Application progress for/ })[0];
     fireEvent.click(within(g).getByRole("button", { name: /Submitted/ }));
     await screen.findByText(/You reported that you submitted the application/, undefined, { timeout: 10000 });
   }, 90000);

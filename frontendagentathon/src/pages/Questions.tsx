@@ -147,6 +147,8 @@ function LiveQuestions() {
   }, [live.shown, live.questions]);
 
   const list = order.map((id) => byId.get(id)).filter((q): q is ApiQuestion => !!q);
+  // Questions we listed but the backend stopped asking (an earlier answer made them unnecessary, e.g. a scheme became unlikely).
+  const dropped = order.filter((id) => !byId.has(id)).length;
   const answered = list.filter((q) => live.answers[q.attribute]).length;
   const send = async (q: ApiQuestion, c: Choice) => {
     setBusy(q.id);
@@ -184,6 +186,11 @@ function LiveQuestions() {
             {list.map((q, i) => (
               <LiveQuestion key={q.id} q={q} n={i + 1} answer={live.answers[q.attribute]} busy={busy === q.id} error={failed?.id === q.id ? failed.message : ""} send={(c) => send(q, c)} />
             ))}
+            {dropped > 0 && (
+              <p role="status" style={{ fontSize: 14, color: "var(--muted)" }}>
+                {dropped === 1 ? "1 other question isn't needed" : `${dropped} other questions aren't needed`} any more. Your answers already settle the schemes they were for.
+              </p>
+            )}
             <div className="row-between" style={{ paddingTop: 18 }}>
               <span />
               <PrimaryLink to="/results">See my results</PrimaryLink>
