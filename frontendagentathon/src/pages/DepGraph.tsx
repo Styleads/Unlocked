@@ -1,138 +1,289 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import type { ReactNode } from "react";
 import { Check } from "lucide-react";
 import { PLAN_DOCS, PLAN_SCHEME_NODES } from "../data";
 
 /** "What each document unlocks": documents on the left, schemes on the right, one curve per requirement. */
 
-const W = 540;
+const W = 550;
 const HEAD = 30; // room for the column labels
 const NODE_H = 44;
 const PITCH = 62;
-const DOC_X = 28;
-const DOC_W = 170;
-const SCH_X = 340;
+const DOC_X = 36;
+const DOC_W = 168;
+const SCH_X = 328;
 const SCH_W = 196;
-const MID = (DOC_X + DOC_W + SCH_X) / 2;
 
 type Edge = { doc: string; scheme: string };
 
-// Edges come from each document's "needed for" list, so the diagram can't drift from the cards.
-const EDGES: Edge[] = PLAN_DOCS.flatMap((d) =>
-  d.for.flatMap((name) => {
-    const n = PLAN_SCHEME_NODES.find((s) => s.label === name);
-    return n ? [{ doc: d.id, scheme: n.id }] : [];
-  }),
-);
-
-const schemeIndex = (id: string) => PLAN_SCHEME_NODES.findIndex((s) => s.id === id);
-
-// Order documents by the schemes they feed (top schemes first) so the curves cross as little as possible.
-// A document that must come after another sits below its siblings, next to the one it waits on.
-const avg = (docId: string) => {
-  const idx = EDGES.filter((e) => e.doc === docId).map((e) => schemeIndex(e.scheme));
-  return idx.length ? idx.reduce((a, b) => a + b, 0) / idx.length : 99;
-};
-const DOCS = [...PLAN_DOCS].sort((a, b) => avg(a.id) - avg(b.id) || Number(!!a.after) - Number(!!b.after));
-const docY = (i: number) => HEAD + i * PITCH;
-
-// Each scheme sits at the average height of the documents it needs, kept at least one row apart.
-const SCHEME_Y: Record<string, number> = (() => {
-  let prev = -Infinity;
-  const out: Record<string, number> = {};
-  PLAN_SCHEME_NODES.forEach((n) => {
-    const rows = EDGES.filter((e) => e.scheme === n.id).map((e) => DOCS.findIndex((d) => d.id === e.doc));
-    const mean = rows.length ? rows.reduce((a, b) => a + b, 0) / rows.length : 0;
-    prev = Math.max(HEAD + mean * PITCH, prev + PITCH);
-    out[n.id] = prev;
-  });
-  return out;
-})();
-const HEIGHT = Math.max(docY(DOCS.length - 1), ...Object.values(SCHEME_Y)) + NODE_H + 6;
-
-const curve = (e: Edge) => {
-  const y1 = docY(DOCS.findIndex((d) => d.id === e.doc)) + NODE_H / 2;
-  const y2 = SCHEME_Y[e.scheme] + NODE_H / 2;
-  const x1 = DOC_X + DOC_W;
-  return { d: `M${x1} ${y1} C${MID} ${y1} ${MID} ${y2} ${SCH_X} ${y2}`, x1, y1, y2 };
-};
-
-// "Get after": a dashed arc down the left side, from the document you need first to the one that waits on it.
-const DEPS = DOCS.flatMap((d, i) => {
-  const pre = d.after ? DOCS.findIndex((p) => p.name === d.after) : -1;
-  if (pre < 0) return [];
-  const y1 = docY(pre) + NODE_H / 2;
-  const y2 = docY(i) + NODE_H / 2;
-  return [{ key: d.id, d: `M${DOC_X} ${y1} C${DOC_X - 26} ${y1} ${DOC_X - 26} ${y2} ${DOC_X} ${y2}` }];
-});
-
-export default function DepGraph({ isReady, hover, setHover }: { isReady: (id: string) => boolean; hover: string | null; setHover: (id: string | null) => void }) {
+export default function DepGraph({
+  isReady,
+  hover,
+  setHover,
+}: {
+  isReady: (id: string) => boolean;
+  hover: string | null;
+  setHover: (id: string | null) => void;
+}) {
   const [hoverScheme, setHoverScheme] = useState<string | null>(null);
 
-  // Hovering a document lights its schemes; hovering a scheme lights the documents it needs.
-  const active = (e: Edge) => (hover ? e.doc === hover : hoverScheme ? e.scheme === hoverScheme : false);
-  const focused = hover !== null || hoverScheme !== null;
-  const litDocs = new Set(EDGES.filter(active).map((e) => e.doc));
-  const litSchemes = new Set(EDGES.filter(active).map((e) => e.scheme));
+  // Edges come from each document's "needed for" list, so the diagram can't drift from the cards.
+  const edges: Edge[] = useMemo(
+    () =>
+      PLAN_DOCS.flatMap((d) =>
+        d.for.flatMap((name) => {
+          const n = PLAN_SCHEME_NODES.find((s) => s.label === name);
+          return n ? [{ doc: d.id, scheme: n.id }] : [];
+        }),
+      ),
+    [],
+  );
 
-  const progress = Object.fromEntries(PLAN_SCHEME_NODES.map((n) => {
-    const ids = EDGES.filter((e) => e.scheme === n.id).map((e) => e.doc);
-    return [n.id, { have: ids.filter(isReady).length, total: ids.length }];
-  }));
+  const schemeIndex = useCallback((id: string) => PLAN_SCHEME_NODES.findIndex((s) => s.id === id), []);
+
+  // Order documents by the schemes they feed (top schemes first) so curves cross as little as possible.
+  // Documents that wait on a prerequisite sit adjacent to them.
+  const docs = useMemo(() => {
+    const avg = (docId: string) => {
+      const idx = edges.filter((e) => e.doc === docId).map((e) => schemeIndex(e.scheme));
+      return idx.length ? idx.reduce((a, b) => a + b, 0) / idx.length : 99;
+    };
+    return [...PLAN_DOCS].sort(
+      (a, b) => avg(a.id) - avg(b.id) || Number(!!a.after) - Number(!!b.after),
+    );
+  }, [edges, schemeIndex]);
+
+  const docY = useCallback((i: number) => HEAD + i * PITCH, []);
+
+  // Schemes sit at the average height of documents they need, kept at least one pitch apart.
+  const schemeY: Record<string, number> = useMemo(() => {
+    let prev = -Infinity;
+    const out: Record<string, number> = {};
+    PLAN_SCHEME_NODES.forEach((n) => {
+      const rows = edges.filter((e) => e.scheme === n.id).map((e) => docs.findIndex((d) => d.id === e.doc));
+      const mean = rows.length ? rows.reduce((a, b) => a + b, 0) / rows.length : 0;
+      prev = Math.max(HEAD + mean * PITCH, prev + PITCH);
+      out[n.id] = prev;
+    });
+    return out;
+  }, [edges, docs]);
+
+  const height = useMemo(
+    () => Math.max(docY(docs.length - 1), ...Object.values(schemeY)) + NODE_H + 10,
+    [docs.length, docY, schemeY],
+  );
+
+  const docFeedsCount = useMemo(() => {
+    const map = new Map<string, number>();
+    edges.forEach((e) => map.set(e.doc, (map.get(e.doc) ?? 0) + 1));
+    return map;
+  }, [edges]);
+
+  const curveData = useMemo(() => {
+    const dx = SCH_X - (DOC_X + DOC_W);
+    const cp1x = DOC_X + DOC_W + dx * 0.45;
+    const cp2x = DOC_X + DOC_W + dx * 0.55;
+    return edges.map((e) => {
+      const y1 = docY(docs.findIndex((d) => d.id === e.doc)) + NODE_H / 2;
+      const y2 = schemeY[e.scheme] + NODE_H / 2;
+      const x1 = DOC_X + DOC_W;
+      return {
+        edge: e,
+        d: `M${x1} ${y1} C${cp1x} ${y1} ${cp2x} ${y2} ${SCH_X} ${y2}`,
+        x1,
+        y1,
+        y2,
+      };
+    });
+  }, [edges, docs, docY, schemeY]);
+
+  // "Get after": dashed arc on left, from prerequisite to the document that requires it.
+  const deps = useMemo(() => {
+    return docs.flatMap((d, i) => {
+      const pre = d.after ? docs.findIndex((p) => p.name === d.after) : -1;
+      if (pre < 0) return [];
+      const y1 = docY(pre) + NODE_H / 2;
+      const y2 = docY(i) + NODE_H / 2;
+      const arcX = DOC_X - 22;
+      const labelY = (y1 + y2) / 2;
+      return [
+        {
+          key: d.id,
+          d: `M${DOC_X} ${y1} C${arcX} ${y1} ${arcX} ${y2} ${DOC_X} ${y2}`,
+          tooltip: `${d.name} is obtained after ${d.after}`,
+          labelY,
+        },
+      ];
+    });
+  }, [docs, docY]);
+
+  // Hovering a document lights its schemes; hovering a scheme lights the documents it needs.
+  const active = useCallback(
+    (e: Edge) => (hover ? e.doc === hover : hoverScheme ? e.scheme === hoverScheme : false),
+    [hover, hoverScheme],
+  );
+  const focused = hover !== null || hoverScheme !== null;
+
+  const litDocs = useMemo(() => new Set(edges.filter(active).map((e) => e.doc)), [edges, active]);
+  const litSchemes = useMemo(() => new Set(edges.filter(active).map((e) => e.scheme)), [edges, active]);
+
+  const progress = useMemo(
+    () =>
+      Object.fromEntries(
+        PLAN_SCHEME_NODES.map((n) => {
+          const ids = edges.filter((e) => e.scheme === n.id).map((e) => e.doc);
+          return [n.id, { have: ids.filter(isReady).length, total: ids.length }];
+        }),
+      ),
+    [edges, isReady],
+  );
 
   return (
-    <FitStage width={W} height={HEIGHT}>
-      <svg width={W} height={HEIGHT} viewBox={`0 0 ${W} ${HEIGHT}`} aria-hidden style={{ position: "absolute", inset: 0, overflow: "visible" }}>
+    <FitStage width={W} height={height}>
+      <svg
+        width={W}
+        height={height}
+        viewBox={`0 0 ${W} ${height}`}
+        aria-hidden
+        style={{ position: "absolute", inset: 0, overflow: "visible" }}
+      >
         <defs>
           <marker id="dep-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
             <path d="M0 0 L8 4 L0 8 z" style={{ fill: "var(--secondary-dark)" }} />
           </marker>
         </defs>
-        <text className="gcol" x={DOC_X + 4} y={12}>DOCUMENTS</text>
-        <text className="gcol" x={SCH_X + 4} y={12}>SCHEMES</text>
-        {EDGES.map((e) => {
-          const c = curve(e);
-          const cls = !focused ? (e.doc === "income" ? "edge sh" : "edge") : active(e) ? "edge on" : "edge dim";
+        <text className="gcol" x={DOC_X + 4} y={14}>
+          DOCUMENTS
+        </text>
+        <text className="gcol" x={SCH_X + 4} y={14}>
+          SCHEMES
+        </text>
+
+        {/* Dependency curves */}
+        {curveData.map(({ edge: e, d, x1, y1, y2 }) => {
+          const docRecord = docs.find((d) => d.id === e.doc);
+          const isShared = Boolean(docRecord?.shared || (docFeedsCount.get(e.doc) ?? 0) > 1);
+          const cls = !focused ? (isShared ? "edge sh" : "edge") : active(e) ? "edge on" : "edge dim";
           return (
             <g key={`${e.doc}-${e.scheme}`}>
-              <path className={cls} d={c.d} />
-              <circle className={active(e) ? "port on" : "port"} cx={c.x1} cy={c.y1} r={3.5} />
-              <circle className={active(e) ? "port on" : "port"} cx={SCH_X} cy={c.y2} r={3.5} />
+              <path className={cls} d={d} />
+              <circle className={active(e) ? "port on" : "port"} cx={x1} cy={y1} r={3.5} />
+              <circle className={active(e) ? "port on" : "port"} cx={SCH_X} cy={y2} r={3.5} />
             </g>
           );
         })}
-        {DEPS.map((p) => <path key={p.key} className="dep" d={p.d} markerEnd="url(#dep-arrow)" />)}
+
+        {/* Prerequisite dashed arcs */}
+        {deps.map((p) => (
+          <g key={p.key}>
+            <path className="dep" d={p.d} markerEnd="url(#dep-arrow)" />
+            <title>{p.tooltip}</title>
+            <text
+              x={DOC_X - 12}
+              y={p.labelY + 3}
+              textAnchor="end"
+              style={{
+                fontSize: 8.5,
+                fontFamily: "var(--mono)",
+                fill: "var(--secondary-dark)",
+                fontWeight: 600,
+                letterSpacing: "0.03em",
+                pointerEvents: "none",
+              }}
+            >
+              after
+            </text>
+          </g>
+        ))}
       </svg>
 
-      {DOCS.map((d, i) => (
-        <div
-          key={d.id}
-          className={`node doc${focused ? (litDocs.has(d.id) ? " on" : " dim") : d.shared ? " sh" : ""}`}
-          style={{ left: DOC_X, top: docY(i), width: DOC_W }}
-          onMouseEnter={() => setHover(d.id)}
-          onMouseLeave={() => setHover(null)}
-        >
-          <span className={isReady(d.id) ? "ndot ready" : "ndot"}>{isReady(d.id) && <Check size={9} strokeWidth={3.4} aria-hidden />}</span>
-          {d.name}
-        </div>
-      ))}
+      {/* Document Nodes */}
+      {docs.map((d, i) => {
+        const ready = isReady(d.id);
+        const isShared = Boolean(d.shared || (docFeedsCount.get(d.id) ?? 0) > 1);
+        return (
+          <div
+            key={d.id}
+            role="button"
+            tabIndex={0}
+            aria-label={`${d.name}: ${ready ? "Ready" : "Missing"}${isShared ? ", shared document" : ""}`}
+            className={`node doc${focused ? (litDocs.has(d.id) ? " on" : " dim") : isShared ? " sh" : ""}`}
+            style={{
+              left: DOC_X,
+              top: docY(i),
+              width: DOC_W,
+              cursor: "pointer",
+              outlineOffset: 2,
+            }}
+            onMouseEnter={() => setHover(d.id)}
+            onMouseLeave={() => setHover(null)}
+            onFocus={() => setHover(d.id)}
+            onBlur={() => setHover(null)}
+            onClick={() => setHover(hover === d.id ? null : d.id)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setHover(hover === d.id ? null : d.id);
+              }
+            }}
+          >
+            {ready ? (
+              <span className="ndot ready" title="Ready (obtained)">
+                <Check size={9} strokeWidth={3.4} aria-hidden />
+              </span>
+            ) : (
+              <span
+                className="ndot"
+                title="Missing (needed)"
+                style={{
+                  width: 15,
+                  height: 15,
+                  borderRadius: "50%",
+                  border: "1.5px dashed var(--line-4)",
+                  background: "var(--surface-sunk)",
+                  display: "grid",
+                  placeItems: "center",
+                  flex: "none",
+                }}
+              >
+                <span style={{ width: 4, height: 4, borderRadius: "50%", background: "var(--muted)" }} />
+              </span>
+            )}
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {d.name}
+            </span>
+          </div>
+        );
+      })}
 
+      {/* Scheme Nodes */}
       {PLAN_SCHEME_NODES.map((n) => {
-        const p = progress[n.id];
+        const p = progress[n.id] ?? { have: 0, total: 0 };
         return (
           <a
             key={n.id}
             href={`#next-${n.id}`}
             title="See the steps to apply"
+            aria-label={`${n.label}: ${p.have} of ${p.total} required documents ready`}
             className={`node sch${focused ? (litSchemes.has(n.id) ? " on" : " dim") : ""}`}
-            style={{ left: SCH_X, top: SCHEME_Y[n.id], width: SCH_W, textDecoration: "none", cursor: "pointer", justifyContent: "space-between" }}
+            style={{
+              left: SCH_X,
+              top: schemeY[n.id],
+              width: SCH_W,
+              textDecoration: "none",
+              cursor: "pointer",
+              justifyContent: "space-between",
+              outlineOffset: 2,
+            }}
             onMouseEnter={() => setHoverScheme(n.id)}
             onMouseLeave={() => setHoverScheme(null)}
             onFocus={() => setHoverScheme(n.id)}
             onBlur={() => setHoverScheme(null)}
           >
-            <span>{n.label}</span>
-            <span className={p.have === p.total ? "ncount done" : "ncount"}>{p.have}/{p.total}</span>
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{n.label}</span>
+            <span className={p.have === p.total ? "ncount done" : "ncount"} style={{ flexShrink: 0 }}>
+              {p.have}/{p.total}
+            </span>
           </a>
         );
       })}
@@ -140,22 +291,46 @@ export default function DepGraph({ isReady, hover, setHover }: { isReady: (id: s
   );
 }
 
-/** Lays out a fixed-size stage and scales it to the width it is given, so a diagram never needs to scroll. */
+/** Lays out a fixed-size stage and scales it cleanly to the width it is given, preventing clipping on smaller screens. */
 function FitStage({ width, height, children }: { width: number; height: number; children: ReactNode }) {
   const box = useRef<HTMLDivElement>(null);
   const [k, setK] = useState(1);
+
   useEffect(() => {
     const el = box.current;
     if (!el) return;
-    const fit = () => setK(Math.min(1.25, el.clientWidth / width));
+    const fit = () => {
+      const cw = el.clientWidth;
+      if (cw > 0) {
+        setK(Math.min(1, cw / width));
+      }
+    };
     fit();
     const ro = new ResizeObserver(fit);
     ro.observe(el);
     return () => ro.disconnect();
   }, [width]);
+
   return (
-    <div ref={box} style={{ width: "100%", height: height * k, position: "relative" }}>
-      <div style={{ position: "absolute", left: 0, top: 0, width, height, transform: `scale(${k})`, transformOrigin: "top left" }}>{children}</div>
+    <div
+      ref={box}
+      role="region"
+      aria-label="What each document unlocks dependency graph"
+      style={{ width: "100%", height: Math.ceil(height * k), position: "relative", overflow: "hidden" }}
+    >
+      <div
+        style={{
+          position: "absolute",
+          left: 0,
+          top: 0,
+          width,
+          height,
+          transform: `scale(${k})`,
+          transformOrigin: "top left",
+        }}
+      >
+        {children}
+      </div>
     </div>
   );
 }
