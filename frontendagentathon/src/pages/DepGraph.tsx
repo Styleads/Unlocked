@@ -9,8 +9,8 @@ const W = 550;
 const HEAD = 30; // room for the column labels
 const NODE_H = 44;
 const PITCH = 62;
-const DOC_X = 36;
-const DOC_W = 168;
+const DOC_X = 28;
+const DOC_W = 172;
 const SCH_X = 328;
 const SCH_W = 196;
 
@@ -42,7 +42,6 @@ export default function DepGraph({
   const schemeIndex = useCallback((id: string) => PLAN_SCHEME_NODES.findIndex((s) => s.id === id), []);
 
   // Order documents by the schemes they feed (top schemes first) so curves cross as little as possible.
-  // Documents that wait on a prerequisite sit adjacent to them.
   const docs = useMemo(() => {
     const avg = (docId: string) => {
       const idx = edges.filter((e) => e.doc === docId).map((e) => schemeIndex(e.scheme));
@@ -97,26 +96,6 @@ export default function DepGraph({
     });
   }, [edges, docs, docY, schemeY]);
 
-  // "Get after": dashed arc on left, from prerequisite to the document that requires it.
-  const deps = useMemo(() => {
-    return docs.flatMap((d, i) => {
-      const pre = d.after ? docs.findIndex((p) => p.name === d.after) : -1;
-      if (pre < 0) return [];
-      const y1 = docY(pre) + NODE_H / 2;
-      const y2 = docY(i) + NODE_H / 2;
-      const arcX = DOC_X - 22;
-      const labelY = (y1 + y2) / 2;
-      return [
-        {
-          key: d.id,
-          d: `M${DOC_X} ${y1} C${arcX} ${y1} ${arcX} ${y2} ${DOC_X} ${y2}`,
-          tooltip: `${d.name} is obtained after ${d.after}`,
-          labelY,
-        },
-      ];
-    });
-  }, [docs, docY]);
-
   // Hovering a document lights its schemes; hovering a scheme lights the documents it needs.
   const active = useCallback(
     (e: Edge) => (hover ? e.doc === hover : hoverScheme ? e.scheme === hoverScheme : false),
@@ -147,11 +126,6 @@ export default function DepGraph({
         aria-hidden
         style={{ position: "absolute", inset: 0, overflow: "visible" }}
       >
-        <defs>
-          <marker id="dep-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
-            <path d="M0 0 L8 4 L0 8 z" style={{ fill: "var(--secondary-dark)" }} />
-          </marker>
-        </defs>
         <text className="gcol" x={DOC_X + 4} y={14}>
           DOCUMENTS
         </text>
@@ -172,29 +146,6 @@ export default function DepGraph({
             </g>
           );
         })}
-
-        {/* Prerequisite dashed arcs */}
-        {deps.map((p) => (
-          <g key={p.key}>
-            <path className="dep" d={p.d} markerEnd="url(#dep-arrow)" />
-            <title>{p.tooltip}</title>
-            <text
-              x={DOC_X - 12}
-              y={p.labelY + 3}
-              textAnchor="end"
-              style={{
-                fontSize: 8.5,
-                fontFamily: "var(--mono)",
-                fill: "var(--secondary-dark)",
-                fontWeight: 600,
-                letterSpacing: "0.03em",
-                pointerEvents: "none",
-              }}
-            >
-              after
-            </text>
-          </g>
-        ))}
       </svg>
 
       {/* Document Nodes */}
