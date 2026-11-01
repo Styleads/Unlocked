@@ -203,3 +203,71 @@ async def test_scenario_d_unsupported_flow(tmp_path, monkeypatch):
         data = res_adv.json()
         assert data["chat_status"] == "unable_to_resolve"
         assert data["appointment_status"] == "not_requested"
+
+
+@pytest.mark.asyncio
+async def test_calendar_download_endpoint(tmp_path, monkeypatch):
+    db_file = str(tmp_path / "test_api.db")
+    monkeypatch.setenv("DB_PATH", db_file)
+    session_id = await _seed_session(db_file)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # Create and advance to confirmation
+        res = await client.post(
+            f"/api/sessions/{session_id}/office-chats",
+            json={
+                "scheme_id": "fallback-ssp-scst-001",
+                "scenario_id": "scenario_a_success",
+                "pre_authorized_confirmation": True,
+            },
+        )
+        chat_id = res.json()["chat_id"]
+        await client.post(f"/api/office-chats/{chat_id}/advance")
+        await client.post(f"/api/office-chats/{chat_id}/advance")
+
+        # Download calendar invite
+        dl_res = await client.get(f"/api/office-chats/{chat_id}/calendar/download")
+        assert dl_res.status_code == 200
+        assert "text/calendar" in dl_res.headers["content-type"]
+        assert f"simulated_appointment_{chat_id}.ics" in dl_res.headers["content-disposition"]
+        assert "BEGIN:VCALENDAR" in dl_res.text
+        assert "SIMULATION DEMO" in dl_res.text
+
+
+@pytest.mark.asyncio
+async def test_simulated_appointment_notification_trigger(tmp_path, monkeypatch):
+    db_file = str(tmp_path / "test_api.db")
+    monkeypatch.setenv("DB_PATH", db_file)
+    session_id = await _seed_session(db_file)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # Opt-in to email notifications
+        await client.post(
+            f"/api/sessions/{session_id}/notifications/preferences",
+            json={"email": "citizen@example.com", "email_enabled": True},
+        )
+
+        # Create and advance chat to confirmation
+        res = await client.post(
+            f"/api/sessions/{session_id}/office-chats",
+            json={
+                "scheme_id": "fallback-ssp-scst-001",
+                "scenario_id": "scenario_a_success",
+                "pre_authorized_confirmation": True,
+            },
+        )
+        chat_id = res.json()["chat_id"]
+        await client.post(f"/api/office-chats/{chat_id}/advance")
+        await client.post(f"/api/office-chats/{chat_id}/advance")
+
+        # Check notifications list
+        notifs_res = await client.get(f"/api/sessions/{session_id}/notifications")
+        assert notifs_res.status_code == 200
+        notifs = notifs_res.json()
+        assert len(notifs) >= 1
+        sim_notif = next(n for n in notifs if n["notification_type"] == "simulated_appointment_confirmed")
+        assert sim_notif["recipient"] == "citizen@example.com"
+        assert "[SIMULATED DEMO]" in sim_notif["subject"]
+

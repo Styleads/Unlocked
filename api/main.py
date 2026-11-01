@@ -102,6 +102,7 @@ from api.notifications import (
     render_appointment_follow_up_email,
     render_appointment_reminder_email,
     render_deadline_reminder_email,
+    render_simulated_appointment_email,
 )
 from api.recovery import investigate_rejection
 from api.orchestrator import (
@@ -1842,6 +1843,42 @@ def _generate_simulated_ics(scheme: Any, offer: AppointmentOffer) -> Optional[st
         return None
 
 
+async def _trigger_simulated_appointment_notification(
+    session_id: str,
+    scheme_name: str,
+    offer: AppointmentOffer,
+    office_name: Optional[str] = None,
+) -> None:
+    """Queue opted-in demo email notification for a confirmed simulated appointment."""
+    try:
+        prefs = await get_notification_preferences(session_id)
+        if prefs:
+            email_enabled = bool(prefs.get("email_enabled")) if isinstance(prefs, dict) else bool(getattr(prefs, "email_enabled", False))
+            recipient_email = prefs.get("email") if isinstance(prefs, dict) else getattr(prefs, "email", None)
+            if email_enabled and recipient_email:
+                subject, text_b, html_b = render_simulated_appointment_email(
+                    scheme_name=scheme_name,
+                    scheduled_at_str=f"{offer.date} at {offer.time}",
+                    location=offer.location,
+                    office_name=office_name,
+                )
+                notif_id = f"notif_sim_{uuid.uuid4().hex[:8]}"
+                await create_notification(
+                    notification_id=notif_id,
+                    session_id=session_id,
+                    notification_type="simulated_appointment_confirmed",
+                    recipient=recipient_email,
+                    subject=subject,
+                    body_html=html_b,
+                    body_text=text_b,
+                    scheduled_at_utc=now_utc().isoformat(),
+                    is_demo=is_demo_mode(),
+                )
+                logger.info("Queued simulated appointment confirmation email %s for %s", notif_id, recipient_email)
+    except Exception as exc:
+        logger.warning("Could not queue notification for simulated appointment: %s", exc)
+
+
 @app.post(
     "/api/sessions/{session_id}/office-chats",
     response_model=OfficeChatView,
@@ -2068,19 +2105,26 @@ async def api_advance_office_chat(
             apt_t = parse_time_str(chat_session.appointment.time) if chat_session.appointment.time else None
             if apt_d and apt_t:
                 apt_id = f"sim_apt_{chat_session.chat_id}"
+                sched_iso = datetime.combine(apt_d, apt_t).replace(tzinfo=timezone.utc).isoformat()
                 await create_appointment(
                     session_id=chat_session.session_id,
                     appointment_id=apt_id,
                     purpose=f"[SIMULATED] Document verification for {scheme.name}",
-                    scheduled_at_utc=datetime.combine(apt_d, apt_t).replace(tzinfo=timezone.utc),
+                    scheduled_at_utc=sched_iso,
                     location=chat_session.appointment.location or (office.office_name if office else "Office"),
-                    notes="Simulated appointment created via Office Chat Simulator.",
                     status="scheduled",
                     status_source="simulated_confirmed",
                     related_task_id=f"chat_{chat_session.chat_id}",
                 )
         except Exception as exc:
             logger.warning("Could not persist simulated appointment row: %s", exc)
+
+        await _trigger_simulated_appointment_notification(
+            session_id=chat_session.session_id,
+            scheme_name=scheme.name,
+            offer=chat_session.appointment,
+            office_name=office.office_name if office else None,
+        )
 
     await update_office_chat_session(chat_session)
 
@@ -2135,6 +2179,12 @@ async def api_submit_office_chat_user_input(
                     ics_text = _generate_simulated_ics(scheme, chat_session.appointment)
                     if ics_text:
                         chat_session.appointment.calendar_ics = ics_text
+                    await _trigger_simulated_appointment_notification(
+                        session_id=chat_session.session_id,
+                        scheme_name=scheme.name,
+                        offer=chat_session.appointment,
+                        office_name=chat_session.appointment.location,
+                    )
 
             # Record user confirmation message
             confirm_msg = OfficeChatMessage(
@@ -2242,6 +2292,43 @@ async def api_get_office_chat_outcome(
         calendar_ics=cal_ics,
         summary=summary,
         next_steps=next_steps,
+    )
+
+
+@app.get(
+    "/api/office-chats/{chat_id}/calendar/download",
+    tags=["Office Chat Simulator"],
+    response_class=Response,
+)
+async def api_download_office_chat_calendar(
+    chat_id: str = PathParam(..., description="Office chat ID"),
+):
+    """Download RFC 5545 .ics calendar invite for confirmed simulated appointment."""
+    chat_session = await get_office_chat_session(chat_id)
+    if not chat_session:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Office chat '{chat_id}' not found.")
+
+    cal_ics = chat_session.appointment.calendar_ics if chat_session.appointment else None
+    if not cal_ics and chat_session.appointment_status == AppointmentStatus.simulated_confirmed and chat_session.appointment:
+        scheme = await get_session_scheme(chat_session.session_id, chat_session.scheme_id)
+        if scheme:
+            cal_ics = _generate_simulated_ics(scheme, chat_session.appointment)
+            if cal_ics:
+                chat_session.appointment.calendar_ics = cal_ics
+                await update_office_chat_session(chat_session)
+
+    if not cal_ics:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No confirmed simulated appointment or calendar invite available for this chat.",
+        )
+
+    return Response(
+        content=cal_ics,
+        media_type="text/calendar; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="simulated_appointment_{chat_id}.ics"'
+        },
     )
 
 

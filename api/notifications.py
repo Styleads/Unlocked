@@ -141,6 +141,63 @@ def sanitize_error(error_msg: str) -> str:
 # Notification Content Builders
 # ---------------------------------------------------------------------------
 
+def render_simulated_appointment_email(
+    scheme_name: str,
+    scheduled_at_str: str,
+    location: Optional[str] = None,
+    office_name: Optional[str] = None,
+) -> tuple[str, str, str]:
+    """Render simulated appointment confirmation email watermarked as simulation."""
+    subject = f"[SIMULATED DEMO] Appointment Confirmed for {scheme_name}"
+    loc_str = f"Location: {location}\n" if location else ""
+    office_str = f"Office: {office_name}\n" if office_name else ""
+
+    text_body = f"""Hello,
+
+[SIMULATION DEMO NOTICE]
+This notification confirms an appointment simulated through Project Unlocked's in-website demonstration.
+No real government office was contacted and no actual booking was made.
+
+Simulated Appointment Details:
+Scheme: {scheme_name}
+{office_str}Scheduled Date & Time: {scheduled_at_str}
+{loc_str}
+Preparation Checklist:
+- Original Caste and Income RD Certificate
+- Aadhaar Card with NPCI bank seeding
+- College admission letter and e-Attestation acknowledgment
+
+Thank you for exploring Project Unlocked.
+"""
+
+    html_body = f"""
+    <!DOCTYPE html>
+    <html>
+    <body style="font-family: sans-serif; line-height: 1.5; color: #1f2937; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="background-color: #fef3c7; border: 1px solid #f59e0b; padding: 12px; border-radius: 6px; margin-bottom: 20px;">
+            <strong style="color: #92400e;">[SIMULATION DEMO ONLY]</strong>
+            <p style="margin: 4px 0 0 0; color: #92400e; font-size: 13px;">This notification was generated from an in-website appointment enquiry simulation. No actual government office was contacted.</p>
+        </div>
+        <h2 style="color: #059669;">Simulated Appointment Confirmed</h2>
+        <p>Your simulated appointment for <strong>{scheme_name}</strong> has been confirmed in the demonstration environment.</p>
+        <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
+            <tr><td style="padding: 8px 0; color: #6b7280;">Office:</td><td><strong>{office_name or 'District Welfare Office'}</strong></td></tr>
+            <tr><td style="padding: 8px 0; color: #6b7280;">Scheduled Slot:</td><td><strong>{scheduled_at_str}</strong></td></tr>
+            <tr><td style="padding: 8px 0; color: #6b7280;">Location:</td><td>{location or 'Designated office verification counter'}</td></tr>
+        </table>
+        <h3 style="color: #1f2937; margin-top: 20px;">Preparation Checklist:</h3>
+        <ul>
+            <li>Original Caste and Income RD Certificate</li>
+            <li>Aadhaar Card with NPCI bank seeding</li>
+            <li>College Admission and e-Attestation acknowledgment</li>
+        </ul>
+        <p style="font-size: 12px; color: #6b7280; margin-top: 24px;">Project Unlocked — Transparent Citizen Follow-Through</p>
+    </body>
+    </html>
+    """
+    return subject, text_body, html_body
+
+
 def render_action_plan_email(
     schemes: list[dict[str, Any]],
     checklist_items: list[dict[str, Any]],
