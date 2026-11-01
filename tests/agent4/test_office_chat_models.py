@@ -107,3 +107,4 @@ def test_assistant_chat_turn_decision():
     assert decision.appointment_offer is not None
     assert decision.appointment_offer.date == "2026-11-02"
     assert decision.contact_handoff.whatsapp_number == "+919845012345"
+

@@ -188,3 +188,4 @@ class AssistantChatTurnDecision(BaseModel):
     unresolved_questions: List[str] = Field(default_factory=list)
     contact_handoff: Optional[ContactHandoff] = None
     outcome: Optional[str] = None
+

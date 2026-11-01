@@ -331,6 +331,14 @@ class SchemeView(BaseModel):
     deadline_source_url: Optional[str] = None
     official_sources: list[str] = Field(default_factory=list)
     source_type: str = "live_search"
+    # Office contact information
+    office_name: Optional[str] = None
+    office_address: Optional[str] = None
+    office_hours: Optional[Any] = None
+    whatsapp_number: Optional[str] = None
+    contact_email: Optional[str] = None
+    reception_number: Optional[str] = None
+    office_contact: Optional[dict[str, Any]] = None
     # Assessment overlays
     assessment_status: Optional[str] = None
     assessment_explanation: Optional[str] = None

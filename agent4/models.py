@@ -62,6 +62,12 @@ class SchemeContext(BaseModel):
     contact_email_source_url: Optional[str] = None
     contact_phone: Optional[str] = None
     contact_phone_source_url: Optional[str] = None
+    office_name: Optional[str] = None
+    office_address: Optional[str] = None
+    office_hours: Optional[Any] = None
+    whatsapp_number: Optional[str] = None
+    reception_number: Optional[str] = None
+    office_contact: Optional[dict[str, Any]] = None
 
 
 # --- email -------------------------------------------------------------------
