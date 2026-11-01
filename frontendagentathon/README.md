@@ -6,6 +6,129 @@ Built for the **Google Antigravity Hackathon**, Unlocked turns fragmented govern
 
 ---
 
+## 🏛️ Project Context & Architecture Guidelines
+
+> **Graph logic is generic. All schemes, documents and deadlines come from data files. Adding a new user category means adding data only.**
+
+### 1. Core Principle: Zero Hardcoding in Python Logic
+
+The dependency graph, eligibility assessment, checklist ordering, and document procurement planning are completely decoupled from domain-specific data:
+
+- **No Scheme Names in Code:** All scheme definitions, criteria, and deadlines originate from data files (`data/schemes/<category>.json` or YAML) or live discovery APIs.
+- **No Document Names in Code:** Document vocabulary, aliases, issuing authorities, and verified prerequisites reside in `data/documents.json`. Any unseen document is dynamically normalized into an ID and title without failing or being mapped into hardcoded assumptions.
+- **No Deadlines in Code:** Deadlines and application windows are dynamically extracted from verified scheme requirements and official portal source URLs.
+- **Extensible Categories:** Adding support for farmers, students, senior citizens, artisans, women entrepreneurs, or persons with disabilities requires adding a data file only. No Python code is altered.
+
+### 2. Data Structure & Organization
+
+```
+data/
+├── documents.json                 # Canonical document registry, issuing authorities, prerequisites
+└── schemes/
+    ├── students.json              # Schemes for students (SSP, Vidyasiri, etc.)
+    ├── farmers.json               # Schemes for farmers (PM-KISAN, PMFBY, Raitha Siri, etc.)
+    └── senior_citizens.json       # Schemes for senior citizens (Sandhya Suraksha, etc.)
+```
+
+#### Adding a New Category
+To add a new category (e.g., `weavers`):
+1. Create `data/schemes/weavers.json`.
+2. Define schemes with verified requirements, required documents, and official source URLs.
+3. If new documents are introduced, optionally add them to `data/documents.json` with their issuing authority.
+4. Call `load_schemes_by_category("weavers")` or `load_all_schemes()`—the system discovers and processes them automatically without touching any logic.
+
+### 3. Dependency Graph Inputs
+
+The graph requires two inputs:
+1. **Verified Schemes:** List of `SchemeRecord` instances (from Agent 2 / Discovery), each containing:
+   - Verified required documents (`name`, `source_url`, optional `dependencies`)
+   - Optional verified `deadline` with `deadline_source_url`
+2. **User Document Status:** Mapping of document ID to one of:
+   - `"have"`: User confirmed they already have the document.
+   - `"dont_have"`: User confirmed they do not have the document.
+   - `"unknown"`: User has not answered yet or status is unconfirmed (treated as missing and flagged until confirmed).
+
+### 4. Document Status Flow (Agent 3)
+
+1. **Collection:** Agent 3 scans the shortlisted schemes and aggregates all required documents and prerequisites.
+2. **Plain-Language Questionnaire:** Agent 3 presents clear questions to the user:
+   - *"Do you have your Income Certificate? (Issued by Revenue Department / Nadakacheri)"*
+   - *"Do you have your Land Record (RTC/Pahani)? (Issued by Bhoomi Portal)"*
+3. **Status Updates:** When the user replies with `have`, `dont_have`, or `unknown`, the status is recorded.
+4. **Dynamic Regeneration:** When answers change, the graph, checklist, and priority ranking immediately regenerate. Documents marked `have` no longer constrain dependent documents.
+
+### 5. Output Graph Format
+
+The output is represented as a single universal graph structure:
+
+```json
+{
+  "nodes": [
+    {
+      "id": "doc_income_certificate",
+      "label": "Income Certificate",
+      "type": "document",
+      "status": "have"
+    },
+    {
+      "id": "scholarship_a",
+      "label": "Scholarship A",
+      "type": "scheme",
+      "status": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "doc_income_certificate",
+      "target": "scholarship_a",
+      "relation": "required_for",
+      "type": "scheme requires document",
+      "source_url": "https://..."
+    },
+    {
+      "source": "doc_domicile_certificate",
+      "target": "doc_caste_certificate",
+      "relation": "prerequisite_of",
+      "type": "document requires document",
+      "source_url": "https://..."
+    }
+  ],
+  "ranking": [
+    {
+      "priority": 1,
+      "doc_id": "doc_caste_certificate",
+      "name": "Caste Certificate",
+      "status": "dont_have",
+      "schemes_helped": ["scholarship_a"],
+      "helps_count": 1,
+      "summary": "Caste Certificate (helps 1 application)"
+    }
+  ]
+}
+```
+
+### 6. Multi-Format Renderers
+
+From this single graph data structure, two visualizations are rendered:
+
+#### A. Dashboard Mermaid Diagram
+- **Color Coding:**
+  - `have` -> Green (`#4CAF50`)
+  - `dont_have` -> Red (`#F44336`)
+  - `unknown` -> Grey (`#9E9E9E`)
+  - `scheme` -> Blue (`#1976D2`)
+- **Edges:**
+  - Document required for Scheme: `doc --> scheme`
+  - Prerequisite document: `prereq -.->|prerequisite| doc`
+
+#### B. Obsidian Notes Vault (`scheme-map/`)
+- `scheme-map/README.md` & `Overview.md`: Priority checklist of missing documents with wikilinks `[[...]]` and embedded interactive Mermaid graph.
+- `scheme-map/schemes/<scheme_name>.md`: Note for each scheme linking to required documents.
+- `scheme-map/documents/<doc_name>.md`: Note for each document detailing status, issuing authority, prerequisites, and dependent schemes.
+- Regenerates cleanly via `render_obsidian_notes(plan, output_dir="scheme-map")`.
+
+---
+
 ## Table of Contents
 
 - [1. Executive Overview & Design Philosophy](#1-executive-overview--design-philosophy)
@@ -20,10 +143,11 @@ Built for the **Google Antigravity Hackathon**, Unlocked turns fragmented govern
   - [07. Scheme Deep Dive & Claim Lifecycle (`/scheme`)](#07-scheme-deep-dive--claim-lifecycle-scheme)
   - [08. Dependency-Aware Document Action Plan (`/plan`)](#08-dependency-aware-document-action-plan-plan)
   - [09. Privacy & Data Reset Confirmation Modal](#09-privacy--data-reset-confirmation-modal)
-- [4. Implementation Alignment with `plan.md`](#4-implementation-alignment-with-planmd)
-- [5. Demo Scenarios & Query Parameter Triggers](#5-demo-scenarios--query-parameter-triggers)
-- [6. Technology Stack & Architecture](#6-technology-stack--architecture)
-- [7. Getting Started & Local Development](#7-getting-started--local-development)
+- [4. "What each document unlocks" Graph Component](#4-what-each-document-unlocks-graph-component)
+- [5. Implementation Alignment with `plan.md`](#5-implementation-alignment-with-planmd)
+- [6. Demo Scenarios & Query Parameter Triggers](#6-demo-scenarios--query-parameter-triggers)
+- [7. Technology Stack & Architecture](#7-technology-stack--architecture)
+- [8. Getting Started & Local Development](#8-getting-started--local-development)
 
 ---
 
@@ -57,11 +181,6 @@ Unlocked features an elegant, high-contrast, fully tokenized CSS variable archit
 | **Secondary Dark Text (`--secondary-dark`)** | `#015b54` (Contrast 4.8:1) | `#095449` (Contrast 4.9:1) | `#c4b5fd` |
 | **Warning / Unlikely (`--warn`)** | `#b53a25` (Accessible Amber Red) | `#b53a25` (Soft Terracotta) | `#f59e0b` (Warm Gold) |
 | **Base Text (`--text`)** | `#040a06` (Near Pitch Black) | `#061309` (Forest Charcoal) | `#f4f4f5` (Crisp Light) |
-
-### Contrast & Elegance Safeguards
-- **No Light-on-Light Text:** Primary and secondary colors are strictly fills with high-contrast text or transformed into darkened semantic variants (`--primary-dark`, `--secondary-dark`) for readable link text and icons.
-- **Accessible Muted Warm Tone:** Because civic applications require clear identification of disqualifying criteria, `--warn` utilizes a soft, non-punitive terracotta/amber (`#b53a25` / `#fdf2f0`) paired with an explicit `CircleX` icon. Status is **never communicated by color alone**.
-- **Light Theme Texturing:** Replaced dark glows with crisp hairline borders (`--line: rgba(6, 19, 9, 0.08)`), subtle layered shadows (`--shadow-sm`, `--shadow-md`), and high-clarity SVG hatching.
 
 ---
 
@@ -183,7 +302,6 @@ A directed acyclic dependency plan that identifies common prerequisite documents
 
 - **Interactive SVG Prerequisite Graph:** Visual representation connecting foundational identity documents to intermediate certificates and final scheme applications.
 - **Shared Prerequisite Badges (`SHARED`):** Highlights foundational documents (such as the *Income Certificate* or *Ration Card*) that unlock multiple target schemes at once.
-- **"Get After" Dependency Sequencing:** Explicitly indicates prerequisites (e.g., *"Get after obtaining Income Certificate & Ration Card"*).
 - **Status Tracking Controls:** Citizens can mark documents as *Needed*, *I have it*, or *Obtained*, recalculating remaining friction.
 - **Direct Official Portal Links:** Links to Sakala / Seva Sindhu for issuing authority portals.
 
@@ -200,9 +318,23 @@ A secure, accessible confirmation dialog verifying user intent when clearing ses
 
 ---
 
-## 4. Implementation Alignment with `plan.md`
+## 4. "What each document unlocks" Graph Component
 
-The table below tracks the complete implementation status against the specifications laid out in `plan.md`:
+The dependency graph (`src/pages/DepGraph.tsx`) visualizes which documents feed into each shortlisted scheme:
+
+- **Clean Right Margins:** Coordinates are calibrated (`W = 540`, `DOC_W = 204`, `SCH_X = 326`, `SCH_W = 214`) so real document and scheme names and progress badges (e.g. `3/3`) fit without edge clipping; very long names are cut with an ellipsis and keep a tooltip.
+- **Backend-Driven:** It takes a `PlanVM` (documents, schemes, edges) from the backend plan, or from the demo data when no backend is connected, and lays itself out from that.
+- **Responsive Scaling:** Wrapped in a responsive `FitStage` component using `ResizeObserver` to cleanly scale down on mobile screens (`Math.min(1, clientWidth / width)`).
+- **Data-Driven Shared Highlighting:** Dynamic calculation (`Boolean(doc.shared || feedsCount > 1)`) lights up shared document curves and connection ports in emerald green.
+- **High-Clarity Status Indicators:**
+  - **Have (Obtained):** Solid green circle with white checkmark (`Check` icon).
+  - **Missing (Needed):** 15px dashed border circle with centered pending dot.
+- **Performance Optimized:** All layout and curve coordinates (`curveData`, `docs`, `schemeY`, `edges`) are memoized using React `useMemo` to prevent recomputation on hover or click.
+- **Accessibility:** Contains `role="region"`, `role="button"`, full keyboard focus (`Enter` / `Space`), and descriptive `aria-label`s on documents and schemes.
+
+---
+
+## 5. Implementation Alignment with `plan.md`
 
 | Plan.md Section | Requirement / Guideline | Frontend Implementation Status | File / Component Reference |
 | :--- | :--- | :--- | :--- |
@@ -218,8 +350,7 @@ The table below tracks the complete implementation status against the specificat
 | **§2.4 Verification Dates** | "Last verified: [Date]" timestamps on scheme cards | ✅ Fully Implemented | `src/pages/Results.tsx`, `src/data.ts` |
 | **§2.5 Document Checklist**| Combined document requirements, status tracking | ✅ Fully Implemented | `src/pages/Plan.tsx` |
 | **§2.5 Shared Prerequisites**| `SHARED` pills for documents unlocking $\ge 2$ schemes | ✅ Fully Implemented | `src/pages/Plan.tsx` |
-| **§2.5 Dependency Graph** | SVG DAG visualization connecting prerequisites to schemes | ✅ Fully Implemented | `src/pages/Plan.tsx` |
-| **§2.5 "Get After" Flow** | Explicit ordering of prerequisite certificates | ✅ Fully Implemented | `src/pages/Plan.tsx` |
+| **§2.5 Dependency Graph** | SVG DAG visualization connecting prerequisites to schemes | ✅ Fully Implemented | `src/pages/DepGraph.tsx` |
 | **§2.6 Claim Lifecycle** | 4 separate stages: Assessed $\rightarrow$ Submitted $\rightarrow$ Approved $\rightarrow$ Received | ✅ Fully Implemented | `src/pages/Scheme.tsx` (`.claim-lifecycle`) |
 | **§2.6 Disclaimer** | "Assessment, not an official decision. Authorities decide." | ✅ Fully Implemented | `src/ui.tsx` (`Disclaimer`) |
 | **§5 Shared Contracts** | Normalized TypeScript schema for Schemes, Qs, Assessments | ✅ Fully Implemented | `src/data.ts` |
@@ -230,9 +361,9 @@ The table below tracks the complete implementation status against the specificat
 
 ---
 
-## 5. Demo Scenarios & Query Parameter Triggers
+## 6. Demo Scenarios & Query Parameter Triggers
 
-To facilitate testing and judge presentations, Unlocked includes built-in scenario triggers via URL search parameters:
+To facilitate testing and presentations, Unlocked includes built-in scenario triggers via URL search parameters:
 
 - **Switch Themes on the Fly:**
   - `http://localhost:5173/?theme=light` — Activates the default Light Lavender/Mint theme.
@@ -247,7 +378,7 @@ To facilitate testing and judge presentations, Unlocked includes built-in scenar
 
 ---
 
-## 6. Technology Stack & Architecture
+## 7. Technology Stack & Architecture
 
 - **Core Framework:** React 18 with TypeScript 5
 - **Bundler & Tooling:** Vite 6
@@ -261,7 +392,7 @@ To facilitate testing and judge presentations, Unlocked includes built-in scenar
 
 ---
 
-## 7. Getting Started & Local Development
+## 8. Getting Started & Local Development
 
 ### Prerequisites
 - Node.js (v18.0.0 or higher recommended)
@@ -270,7 +401,7 @@ To facilitate testing and judge presentations, Unlocked includes built-in scenar
 ### Quick Setup
 
 ```bash
-# 1. Navigate to the project directory
+# 1. Navigate to the frontend directory
 cd frontendagentathon
 
 # 2. Install dependencies
@@ -285,7 +416,7 @@ The application will be live at `http://localhost:5173`.
 ### Production Build & Typecheck
 
 ```bash
-# Verify TypeScript types and compile production bundle
+# Compile production bundle
 npm run build
 
 # Preview the production build locally
@@ -298,7 +429,7 @@ npm run preview
 
 
 
-## 8. Connecting to the backend
+## 9. Connecting to the backend
 
 The app talks to the FastAPI service in `api/` (see `src/api.ts`). With no backend running it falls back to its built-in demo data, so it always works.
 

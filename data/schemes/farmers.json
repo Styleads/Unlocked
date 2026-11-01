@@ -1,0 +1,140 @@
+{
+  "category": "farmers",
+  "description": "Government schemes and agricultural assistance for farmers in Karnataka",
+  "schemes": [
+    {
+      "id": "pm_kisan_samman_nidhi",
+      "name": "PM-KISAN Samman Nidhi",
+      "summary": "Income support of Rs 6,000 per year in three equal installments to all landholding farmer families.",
+      "government_level": "central",
+      "target_group": ["farmers"],
+      "deadline": "2026-12-31",
+      "deadline_source_url": "https://pmkisan.gov.in",
+      "requirements": [
+        {
+          "id": "pmkisan_req_land",
+          "attribute": "land_ownership",
+          "criterion": "Must own cultivable agricultural land.",
+          "operator": "is_true",
+          "value": null,
+          "status": "verified",
+          "source_url": "https://pmkisan.gov.in/guidelines",
+          "evidence": "Farmer families holding cultivable land in their names."
+        }
+      ],
+      "documents": [
+        {
+          "name": "Land Record (RTC/Pahani)",
+          "source_url": "https://bhoomi.karnataka.gov.in",
+          "evidence": "Record of Rights, Tenancy and Crops (RTC) from Bhoomi portal"
+        },
+        {
+          "name": "Aadhaar-linked Bank Account",
+          "source_url": "https://pmkisan.gov.in/documents",
+          "evidence": "Bank account linked with Aadhaar and seeded with NPCI"
+        }
+      ],
+      "application_url": "https://pmkisan.gov.in",
+      "official_sources": ["https://pmkisan.gov.in/guidelines"],
+      "verification_status": "verified",
+      "source_type": "official"
+    },
+    {
+      "id": "pm_fasal_bima_yojana",
+      "name": "Pradhan Mantri Fasal Bima Yojana (PMFBY)",
+      "summary": "Crop insurance scheme providing financial support to farmers suffering crop loss or damage.",
+      "government_level": "central_state",
+      "target_group": ["farmers"],
+      "deadline": "2026-11-15",
+      "deadline_source_url": "https://samrakshane.karnataka.gov.in",
+      "requirements": [
+        {
+          "id": "pmfby_req_sowing",
+          "attribute": "notified_crop_sown",
+          "criterion": "Must have sown an insurable notified crop in the notified area.",
+          "operator": "is_true",
+          "value": null,
+          "status": "verified",
+          "source_url": "https://samrakshane.karnataka.gov.in/guidelines",
+          "evidence": "Farmers growing notified crops in notified areas."
+        }
+      ],
+      "documents": [
+        {
+          "name": "Land Record (RTC/Pahani)",
+          "source_url": "https://bhoomi.karnataka.gov.in",
+          "evidence": "Record of Rights, Tenancy and Crops (RTC) from Bhoomi portal"
+        },
+        {
+          "name": "Aadhaar-linked Bank Account",
+          "source_url": "https://samrakshane.karnataka.gov.in/documents",
+          "evidence": "Aadhaar-linked Bank Passbook copy"
+        },
+        {
+          "name": "Crop Sowing Certificate",
+          "source_url": "https://samrakshane.karnataka.gov.in/documents",
+          "evidence": "Crop sowing certificate or Karnataka crop survey acknowledgement",
+          "dependencies": [
+            {
+              "depends_on": "Land Record (RTC/Pahani)",
+              "source_url": "https://samrakshane.karnataka.gov.in"
+            }
+          ]
+        }
+      ],
+      "application_url": "https://samrakshane.karnataka.gov.in",
+      "official_sources": ["https://samrakshane.karnataka.gov.in/guidelines"],
+      "verification_status": "verified",
+      "source_type": "official"
+    },
+    {
+      "id": "raitha_siri_scheme",
+      "name": "Raitha Siri Scheme (Millets)",
+      "summary": "Assistance of Rs 10,000 per hectare to promote cultivation of millets in Karnataka.",
+      "government_level": "state",
+      "target_group": ["farmers"],
+      "deadline": "2026-12-20",
+      "deadline_source_url": "https://raitamitra.karnataka.gov.in",
+      "requirements": [
+        {
+          "id": "raitha_siri_req_domicile",
+          "attribute": "domicile_karnataka",
+          "criterion": "Must be a farmer residing in Karnataka.",
+          "operator": "is_true",
+          "value": null,
+          "status": "verified",
+          "source_url": "https://raitamitra.karnataka.gov.in/guidelines",
+          "evidence": "Millet growers of Karnataka with registered land."
+        }
+      ],
+      "documents": [
+        {
+          "name": "Land Record (RTC/Pahani)",
+          "source_url": "https://bhoomi.karnataka.gov.in",
+          "evidence": "RTC showing survey number"
+        },
+        {
+          "name": "Aadhaar-linked Bank Account",
+          "source_url": "https://raitamitra.karnataka.gov.in/documents",
+          "evidence": "Aadhaar-seeded bank account for DBT"
+        },
+        {
+          "name": "FRUITS Farmer ID Card",
+          "source_url": "https://fruits.karnataka.gov.in",
+          "evidence": "FRUITS FID registered with Agriculture Department",
+          "dependencies": [
+            {
+              "depends_on": "Land Record (RTC/Pahani)",
+              "source_url": "https://fruits.karnataka.gov.in"
+            }
+          ]
+        }
+      ],
+      "application_url": "https://raitamitra.karnataka.gov.in",
+      "official_sources": ["https://raitamitra.karnataka.gov.in/guidelines"],
+      "verification_status": "verified",
+      "source_type": "official"
+    }
+  ]
+}
+

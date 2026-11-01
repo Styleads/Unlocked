@@ -45,7 +45,11 @@ user_profile.json
 profiles/
 user_data/
 *.profile.json
-data/
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+data/user_data/
+data/cache/
 *.db
 *.sqlite
 *.sqlite3

@@ -1,0 +1,201 @@
+{
+  "_description": "Canonical document definitions for Unlocked. Pure data - no Python code.",
+  "documents": [
+    {
+      "id": "doc_income_certificate",
+      "name": "Income Certificate",
+      "issuing_authority": "Revenue Department (Tahsildar / Nadakacheri)",
+      "aliases": ["income cert", "family income certificate", "annual income certificate", "income proof"],
+      "prerequisites": [],
+      "description": "Proof of annual family income issued by Nadakacheri or Atalji Janasnehi Kendra."
+    },
+    {
+      "id": "doc_caste_certificate",
+      "name": "Caste Certificate",
+      "issuing_authority": "Revenue Department (Tahsildar)",
+      "aliases": ["caste cert", "category certificate", "caste and income certificate", "community certificate", "sc st certificate"],
+      "prerequisites": [
+        {
+          "depends_on": "Domicile Certificate",
+          "source_url": "https://nadakacheri.karnataka.gov.in"
+        }
+      ],
+      "description": "Caste/Category certificate (SC/ST/OBC) issued via Nadakacheri."
+    },
+    {
+      "id": "doc_domicile_certificate",
+      "name": "Domicile Certificate",
+      "issuing_authority": "Revenue Department (Tahsildar)",
+      "aliases": ["residence certificate", "residence proof", "proof of residence", "nativity certificate", "domicile cert"],
+      "prerequisites": [],
+      "description": "Proof of permanent residence in Karnataka."
+    },
+    {
+      "id": "doc_aadhaar_card",
+      "name": "Aadhaar Card",
+      "issuing_authority": "UIDAI",
+      "aliases": ["aadhaar", "aadhar", "aadhar card", "aadhaar copy"],
+      "prerequisites": [],
+      "description": "Unique Identification Authority of India 12-digit biometric ID."
+    },
+    {
+      "id": "doc_admission_proof",
+      "name": "Admission Proof",
+      "issuing_authority": "Educational Institution",
+      "aliases": ["admission letter", "proof of admission", "admission order", "allotment letter", "college admission receipt"],
+      "prerequisites": [],
+      "description": "Official admission allotment letter or confirmation from a recognized educational institution."
+    },
+    {
+      "id": "doc_fee_receipt",
+      "name": "Fee Receipt",
+      "issuing_authority": "Educational Institution",
+      "aliases": ["fee structure", "fee payment receipt", "fees receipt", "tuition fee receipt"],
+      "prerequisites": [
+        {
+          "depends_on": "Admission Proof",
+          "source_url": "https://ssp.postmatric.karnataka.gov.in"
+        }
+      ],
+      "description": "Official fee receipt showing payment made to the educational institution."
+    },
+    {
+      "id": "doc_previous_marksheet",
+      "name": "Previous Marksheet",
+      "issuing_authority": "Examination Board / University",
+      "aliases": ["marksheet", "marks card", "marks sheet", "previous year marksheet", "mark list", "previous marks card"],
+      "prerequisites": [],
+      "description": "Marks card of previous academic year/semester."
+    },
+    {
+      "id": "doc_bank_passbook",
+      "name": "Bank Passbook",
+      "issuing_authority": "Commercial / Scheduled Bank",
+      "aliases": ["bank account details", "bank passbook copy", "passbook", "bank account proof"],
+      "prerequisites": [],
+      "description": "Front page of bank passbook or cancelled cheque displaying account number and IFSC code."
+    },
+    {
+      "id": "doc_passport_photo",
+      "name": "Passport Photo",
+      "issuing_authority": "Applicant",
+      "aliases": ["passport size photo", "photograph", "photo", "recent photograph"],
+      "prerequisites": [],
+      "description": "Recent passport size photograph."
+    },
+    {
+      "id": "doc_disability_certificate",
+      "name": "Disability Certificate",
+      "issuing_authority": "District Medical Board / UDID Portal",
+      "aliases": ["pwd certificate", "udid card", "disability proof", "medical certificate"],
+      "prerequisites": [],
+      "description": "Unique Disability ID (UDID) or disability certificate from authorized medical authority."
+    },
+    {
+      "id": "doc_bonafide_certificate",
+      "name": "Bonafide Certificate",
+      "issuing_authority": "Educational Institution (Principal/Dean)",
+      "aliases": ["study certificate", "bonafide", "student certificate"],
+      "prerequisites": [],
+      "description": "Certificate from head of institution verifying regular student status."
+    },
+    {
+      "id": "doc_ration_card",
+      "name": "Ration Card",
+      "issuing_authority": "Food and Civil Supplies Department",
+      "aliases": ["bpl card", "bpl ration card", "ration card copy", "apl card", "antodaya card"],
+      "prerequisites": [],
+      "description": "Family ration card issued by Department of Food, Civil Supplies & Consumer Affairs."
+    },
+    {
+      "id": "doc_transfer_certificate",
+      "name": "Transfer Certificate",
+      "issuing_authority": "Previous School / College",
+      "aliases": ["tc", "school leaving certificate", "leaving certificate"],
+      "prerequisites": [],
+      "description": "Transfer certificate from institution previously attended."
+    },
+    {
+      "id": "doc_land_record_rtc",
+      "name": "Land Record (RTC/Pahani)",
+      "issuing_authority": "Revenue Department (Bhoomi Portal)",
+      "aliases": ["rtc", "pahani", "land record", "record of rights", "land possession certificate", "patta"],
+      "prerequisites": [],
+      "description": "Record of Rights, Tenancy and Crops (RTC) obtained from the Bhoomi portal or Taluk office."
+    },
+    {
+      "id": "doc_aadhaar_linked_bank_account",
+      "name": "Aadhaar-linked Bank Account",
+      "issuing_authority": "Bank / NPCI",
+      "aliases": ["aadhaar linked bank account", "aadhaar bank account", "dbt linked bank account", "npci seeded bank account"],
+      "prerequisites": [
+        {
+          "depends_on": "Aadhaar Card",
+          "source_url": "https://pmkisan.gov.in"
+        }
+      ],
+      "description": "Bank account seeded with Aadhaar and mapped with NPCI mapper for Direct Benefit Transfer."
+    },
+    {
+      "id": "doc_crop_sowing_certificate",
+      "name": "Crop Sowing Certificate",
+      "issuing_authority": "Agriculture Department / Samrakshane Portal",
+      "aliases": ["crop sowing certificate", "sowing certificate", "crop certificate", "crop survey report", "farmer crop report"],
+      "prerequisites": [
+        {
+          "depends_on": "Land Record (RTC/Pahani)",
+          "source_url": "https://samrakshane.karnataka.gov.in"
+        }
+      ],
+      "description": "Official confirmation of crop sown on the survey number, recorded via Karnataka Farmer Crop Survey app."
+    },
+    {
+      "id": "doc_farmer_id_fruits",
+      "name": "FRUITS Farmer ID Card",
+      "issuing_authority": "Department of Agriculture (FRUITS Portal)",
+      "aliases": ["fruits id", "fid", "farmer id", "fruits registration", "fruits card"],
+      "prerequisites": [
+        {
+          "depends_on": "Land Record (RTC/Pahani)",
+          "source_url": "https://fruits.karnataka.gov.in"
+        }
+      ],
+      "description": "Farmer Registration & Unified Beneficiary Information System (FRUITS) ID."
+    },
+    {
+      "id": "doc_soil_health_card",
+      "name": "Soil Health Card",
+      "issuing_authority": "Department of Agriculture",
+      "aliases": ["soil card", "soil health card", "soil testing report"],
+      "prerequisites": [
+        {
+          "depends_on": "Land Record (RTC/Pahani)",
+          "source_url": "https://agricoop.nic.in"
+        }
+      ],
+      "description": "Soil health assessment report detailing nutrient status and fertilizer dosage recommendations."
+    },
+    {
+      "id": "doc_age_proof",
+      "name": "Age Proof Certificate",
+      "issuing_authority": "Birth Registrar / School Board / UIDAI",
+      "aliases": ["age proof", "birth certificate", "proof of age", "senior citizen age proof"],
+      "prerequisites": [],
+      "description": "Official document establishing age of applicant (Aadhaar, Birth Certificate, School Marksheet)."
+    },
+    {
+      "id": "doc_pension_sanction_order",
+      "name": "Pension Sanction Order",
+      "issuing_authority": "Directorate of Social Security and Pensions",
+      "aliases": ["pension order", "pension certificate", "sanction order", "pension book"],
+      "prerequisites": [
+        {
+          "depends_on": "Age Proof Certificate",
+          "source_url": "https://dssp.karnataka.gov.in"
+        }
+      ],
+      "description": "Official government order sanctioning social security pension."
+    }
+  ]
+}
+

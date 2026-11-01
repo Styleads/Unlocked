@@ -1,0 +1,59 @@
+{
+  "category": "senior_citizens",
+  "description": "Welfare schemes and pensions for senior citizens in Karnataka",
+  "schemes": [
+    {
+      "id": "sandhya_suraksha_yojana",
+      "name": "Sandhya Suraksha Yojana",
+      "summary": "Monthly pension of Rs 1,000 for senior citizens aged 65 and above in Karnataka.",
+      "government_level": "state",
+      "target_group": ["senior_citizens"],
+      "deadline": "2026-12-31",
+      "deadline_source_url": "https://dssp.karnataka.gov.in",
+      "requirements": [
+        {
+          "id": "sandhya_req_age",
+          "attribute": "age",
+          "criterion": "Must be 65 years of age or older.",
+          "operator": "gte",
+          "value": 65,
+          "status": "verified",
+          "source_url": "https://dssp.karnataka.gov.in/guidelines",
+          "evidence": "Applicant must have attained 65 years of age."
+        },
+        {
+          "id": "sandhya_req_income",
+          "attribute": "annual_family_income",
+          "criterion": "Combined family annual income must not exceed Rs 20,000.",
+          "operator": "lte",
+          "value": 20000,
+          "status": "verified",
+          "source_url": "https://dssp.karnataka.gov.in/guidelines",
+          "evidence": "Total annual income of applicant and spouse should not exceed Rs 20,000."
+        }
+      ],
+      "documents": [
+        {
+          "name": "Age Proof Certificate",
+          "source_url": "https://dssp.karnataka.gov.in/documents",
+          "evidence": "Age proof from authorized medical officer or school marks card"
+        },
+        {
+          "name": "Income Certificate",
+          "source_url": "https://dssp.karnataka.gov.in/documents",
+          "evidence": "Income Certificate from Tahsildar"
+        },
+        {
+          "name": "Bank Passbook",
+          "source_url": "https://dssp.karnataka.gov.in/documents",
+          "evidence": "Bank account copy for monthly pension credit"
+        }
+      ],
+      "application_url": "https://dssp.karnataka.gov.in",
+      "official_sources": ["https://dssp.karnataka.gov.in/guidelines"],
+      "verification_status": "verified",
+      "source_type": "official"
+    }
+  ]
+}
+

@@ -217,6 +217,7 @@ class Question(BaseModel):
 class DocStatus(str, Enum):
     have = "have"
     obtained = "obtained"
+    dont_have = "dont_have"
     needed = "needed"
     unknown = "unknown"
 
@@ -230,26 +231,66 @@ class ChecklistItem(BaseModel):
     dependencies: list[str] = Field(default_factory=list)  # document ids (plan §5.4)
     source_urls: list[str] = Field(default_factory=list)
     reason: str
+    issuing_authority: Optional[str] = None
+    is_unknown: bool = False
 
 
 class GraphNode(BaseModel):
     id: str
     label: str
-    kind: str  # "document" | "scheme"
+    kind: str = "document"  # "document" | "scheme"
+    type: Optional[str] = None  # "document" | "scheme"
+    status: Optional[str] = None  # for documents: have / dont_have / unknown
+
+    def model_post_init(self, __context: Any) -> None:
+        if self.type is None:
+            self.type = self.kind
+        if self.kind is None and self.type is not None:
+            self.kind = self.type
 
 
 class GraphEdge(BaseModel):
     source: str
     target: str
     relation: str = "required_for"  # or "prerequisite_of"
+    type: Optional[str] = None  # "scheme requires document" | "document requires document"
     source_url: str = Field(min_length=1)  # edges without a source are never created
+
+    def model_post_init(self, __context: Any) -> None:
+        if self.type is None:
+            if self.relation == "required_for":
+                self.type = "scheme requires document"
+            elif self.relation == "prerequisite_of":
+                self.type = "document requires document"
+            else:
+                self.type = self.relation
+
+
+class RankedDocument(BaseModel):
+    priority: int
+    doc_id: str
+    name: str
+    status: str  # "dont_have" | "unknown"
+    schemes_helped: list[str] = Field(default_factory=list)
+    scheme_names: list[str] = Field(default_factory=list)
+    helps_count: int = 0
+    summary: str = ""
 
 
 class ActionPlan(BaseModel):
     checklist: list[ChecklistItem] = Field(default_factory=list)
     nodes: list[GraphNode] = Field(default_factory=list)
     edges: list[GraphEdge] = Field(default_factory=list)
+    ranking: list[RankedDocument] = Field(default_factory=list)
     shared_prerequisites: list[str] = Field(default_factory=list)  # doc ids needed by 2+ schemes
     explanation: str
     warnings: list[str] = Field(default_factory=list)
     excluded_documents: list[str] = Field(default_factory=list)  # names dropped for lacking a source
+    mermaid: Optional[str] = None
+
+    def to_graph_dict(self) -> dict[str, Any]:
+        return {
+            "nodes": [n.model_dump(mode="json") for n in self.nodes],
+            "edges": [e.model_dump(mode="json") for e in self.edges],
+            "ranking": [r.model_dump(mode="json") for r in self.ranking],
+        }

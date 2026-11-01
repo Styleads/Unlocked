@@ -145,7 +145,6 @@ export default function Plan() {
                 <DepGraph plan={plan} isReady={isReady} hover={hover} setHover={setHover} />
                 <div style={{ display: "flex", gap: 18, flexWrap: "wrap", fontSize: 13, color: "var(--muted)", paddingTop: 12, borderTop: "1px solid var(--line-2)" }}>
                   <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><i style={{ width: 18, height: 2, background: "var(--primary)" }} />Shared document</span>
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><i style={{ width: 18, height: 0, borderTop: "2px dashed var(--secondary-dark)" }} />Get after</span>
                   <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><i className="legend-dot" style={{ background: "var(--primary-dark)" }} />Ready</span>
                 </div>
               </div>
