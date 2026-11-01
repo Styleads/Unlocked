@@ -223,3 +223,4 @@ def test_scenario_d_unsupported_channel(mock_scheme, mock_office):
     assert decision.conversation_status == ChatStatus.unable_to_resolve
     assert decision.next_action == "recommend_direct_contact"
     assert "official department procedure directly" in decision.assistant_message
+

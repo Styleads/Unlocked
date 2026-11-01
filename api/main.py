@@ -12,7 +12,7 @@ import os
 import re
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Optional
 
 from dotenv import load_dotenv
@@ -43,7 +43,45 @@ from api.database import (
     save_notification_preferences,
     update_appointment,
     update_tracked_application,
+    add_office_chat_message,
+    create_office_chat_session,
+    create_unresolved_question,
+    get_appointment_preferences,
+    get_office_chat_session,
+    get_office_contact,
+    get_office_contact_by_scheme,
+    get_unresolved_question,
+    list_office_chat_messages,
+    list_office_chat_sessions,
+    list_unresolved_questions,
+    save_appointment_preferences,
+    save_office_contact,
+    update_office_chat_session,
+    update_unresolved_question,
 )
+from agent4 import (
+    AppointmentOffer,
+    AppointmentStatus,
+    CalendarRequest,
+    ChatStatus,
+    ContactHandoff,
+    ContactSource,
+    OfficeChatMessage,
+    OfficeChatSession,
+    OfficeContact,
+    SchemeContext,
+    TimeWindow,
+    UnresolvedQuestion,
+    UnresolvedQuestionStatus,
+    UserAppointmentPreferences,
+    VerificationStatus,
+    build_calendar_artifact,
+    build_initial_office_enquiry,
+    decide_chat_turn,
+    format_whatsapp_click_url,
+    normalize_phone_number,
+)
+from api.office_simulator import OfficeSimulatorService
 from api.clock import (
     advance_demo_time,
     is_demo_mode,
@@ -126,6 +164,13 @@ from api.schemas import (
     UpdateAppointmentRequest,
     UpdateDocStatusRequest,
     UserProfileInput,
+    AdvanceOfficeChatRequest,
+    CreateOfficeChatRequest,
+    OfficeChatMessageView,
+    OfficeChatOutcomeView,
+    OfficeChatView,
+    UnresolvedQuestionDraftRequest,
+    UserInputRequest,
 )
 from agent4 import (
     analyse_rejection,
@@ -1720,6 +1765,536 @@ async def api_demo_advance_time(
         notifications_processed=len(processed),
         processed_notifications=processed,
     )
+
+
+# ---------------------------------------------------------------------------
+# Office Chat Simulator Endpoints (WhatsApp-Style)
+# ---------------------------------------------------------------------------
+
+def _build_office_chat_view(
+    session: OfficeChatSession,
+    messages: list[OfficeChatMessage],
+    unresolved_questions: list[UnresolvedQuestion],
+    next_action: Optional[str] = None,
+) -> OfficeChatView:
+    return OfficeChatView(
+        chat_id=session.chat_id,
+        session_id=session.session_id,
+        scheme_id=session.scheme_id,
+        office_id=session.office_id,
+        scenario_id=session.scenario_id,
+        simulation_mode=session.simulation_mode,
+        chat_status=session.chat_status,
+        appointment_status=session.appointment_status,
+        appointment=session.appointment,
+        messages=[
+            OfficeChatMessageView(
+                message_id=m.message_id,
+                chat_id=m.chat_id,
+                sender=m.sender,
+                message_text=m.message_text,
+                turn_index=m.turn_index,
+                created_at=m.created_at,
+                metadata=m.metadata,
+            )
+            for m in messages
+        ],
+        unresolved_questions=unresolved_questions,
+        next_action=next_action,
+        started_at=session.started_at,
+        completed_at=session.completed_at,
+    )
+
+
+def _generate_simulated_ics(scheme: Any, offer: AppointmentOffer) -> Optional[str]:
+    """Generate RFC 5545 calendar invite for confirmed simulated appointment."""
+    try:
+        from datetime import date
+        from agent4.office_chat_agent import parse_time_str
+        event_d = date.fromisoformat(offer.date) if offer.date else None
+        event_t = parse_time_str(offer.time) if offer.time else None
+        if not event_d or not event_t:
+            return None
+        end_minute = (event_t.minute + 30) % 60
+        end_hour = event_t.hour + ((event_t.minute + 30) // 60)
+        end_t = time(end_hour, end_minute)
+        scheme_ctx = SchemeContext(
+            id=scheme.id,
+            name=scheme.name,
+            department=getattr(scheme, "department", None),
+            application_url=getattr(scheme, "application_url", None),
+            official_sources=getattr(scheme, "official_sources", []),
+        )
+        cal_req = CalendarRequest(
+            scheme=scheme_ctx,
+            kind=EventKind.appointment,
+            event_date=event_d,
+            date_confirmed_by_user=True,
+            start_time=event_t,
+            end_time=end_t,
+            location=offer.location or "Karnataka Welfare Department Office",
+            notes=f"[SIMULATION DEMO] Simulated document verification appointment for {scheme.name}. Not a real booking.",
+        )
+        cal_art = build_calendar_artifact(cal_req)
+        return cal_art.body_content
+    except Exception as exc:
+        logger.warning("Failed to generate simulated calendar ICS: %s", exc)
+        return None
+
+
+@app.post(
+    "/api/sessions/{session_id}/office-chats",
+    response_model=OfficeChatView,
+    tags=["Office Chat Simulator"],
+    status_code=status.HTTP_201_CREATED,
+)
+async def api_create_office_chat(
+    session_id: str = PathParam(..., description="Active session ID"),
+    payload: CreateOfficeChatRequest = ...,
+):
+    """
+    Initiate an in-website WhatsApp-style simulated enquiry with a welfare office representative.
+    Collects preferred days/windows and pre-authorization, creates chat turn 1.
+    """
+    sess = await get_session(session_id)
+    if not sess:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Session '{session_id}' not found.")
+
+    scheme = await get_session_scheme(session_id, payload.scheme_id)
+    if not scheme:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Scheme '{payload.scheme_id}' not found in session.")
+
+    # 1. Setup preferences
+    if payload.availability:
+        prefs = payload.availability
+        prefs.session_id = session_id
+        prefs.scheme_id = payload.scheme_id
+    else:
+        windows = []
+        if payload.preferred_windows:
+            for w in payload.preferred_windows:
+                if isinstance(w, TimeWindow):
+                    windows.append(w)
+                elif isinstance(w, dict):
+                    windows.append(TimeWindow(**w))
+        if not windows:
+            windows = [TimeWindow(start="10:00", end="13:00")]
+
+        prefs = UserAppointmentPreferences(
+            session_id=session_id,
+            scheme_id=payload.scheme_id,
+            preferred_days=payload.preferred_days or ["monday", "tuesday"],
+            preferred_windows=windows,
+            pre_authorized_confirmation=payload.pre_authorized_confirmation,
+        )
+    await save_appointment_preferences(prefs)
+
+    # 2. Setup office contact
+    office = None
+    if payload.office_id:
+        office = await get_office_contact(payload.office_id)
+    if not office:
+        office = await get_office_contact_by_scheme(payload.scheme_id)
+    if not office:
+        # Build contact from scheme metadata
+        raw_contact = getattr(scheme, "office_contact", {}) or {}
+        office = OfficeContact(
+            scheme_id=payload.scheme_id,
+            office_name=getattr(scheme, "office_name", None) or raw_contact.get("office_name") or f"{scheme.department or 'Karnataka Welfare'} Desk",
+            office_address=getattr(scheme, "office_address", None) or raw_contact.get("office_address") or "Bengaluru, Karnataka",
+            office_hours=getattr(scheme, "office_hours", None) or raw_contact.get("office_hours") or {"monday": {"open": "10:00", "close": "17:30"}, "timezone": "Asia/Kolkata"},
+            whatsapp_number=getattr(scheme, "whatsapp_number", None) or raw_contact.get("whatsapp_number") or "+918277712345",
+            email=getattr(scheme, "contact_email", None) or raw_contact.get("email"),
+            reception_number=getattr(scheme, "reception_number", None) or raw_contact.get("reception_number"),
+            contact_source=ContactSource.website,
+            verification_status=VerificationStatus.verified,
+        )
+        await save_office_contact(office)
+
+    # 3. Create initial chat session and message (turn 1)
+    chat_id = f"chat_{uuid.uuid4().hex[:8]}"
+    scheme_ctx = SchemeContext(
+        id=scheme.id,
+        name=scheme.name,
+        department=getattr(scheme, "department", None),
+        official_sources=getattr(scheme, "official_sources", []),
+    )
+    initial_text = build_initial_office_enquiry(scheme_ctx, office, prefs)
+
+    chat_session = OfficeChatSession(
+        chat_id=chat_id,
+        session_id=session_id,
+        scheme_id=payload.scheme_id,
+        office_id=office.office_id,
+        scenario_id=payload.scenario_id or "scenario_a_success",
+        simulation_mode=True,
+        chat_status=ChatStatus.in_progress,
+        appointment_status=AppointmentStatus.requested,
+    )
+    await create_office_chat_session(chat_session)
+
+    initial_msg = OfficeChatMessage(
+        chat_id=chat_id,
+        sender="unlocked",
+        message_text=initial_text,
+        turn_index=1,
+    )
+    await add_office_chat_message(initial_msg)
+
+    return _build_office_chat_view(chat_session, [initial_msg], [], next_action="wait_for_representative")
+
+
+@app.get(
+    "/api/office-chats/{chat_id}",
+    response_model=OfficeChatView,
+    tags=["Office Chat Simulator"],
+)
+async def api_get_office_chat(
+    chat_id: str = PathParam(..., description="Office chat ID"),
+):
+    """Retrieve current state, messages, and unresolved questions for a chat."""
+    chat_session = await get_office_chat_session(chat_id)
+    if not chat_session:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Office chat '{chat_id}' not found.")
+
+    messages = await list_office_chat_messages(chat_id)
+    uqs = await list_unresolved_questions(chat_session.session_id, chat_id=chat_id)
+    return _build_office_chat_view(chat_session, messages, uqs)
+
+
+@app.post(
+    "/api/office-chats/{chat_id}/advance",
+    response_model=OfficeChatView,
+    tags=["Office Chat Simulator"],
+)
+async def api_advance_office_chat(
+    chat_id: str = PathParam(..., description="Office chat ID"),
+    payload: Optional[AdvanceOfficeChatRequest] = None,
+):
+    """
+    Advance simulated conversation by running the representative turn and Action Agent decision.
+    """
+    chat_session = await get_office_chat_session(chat_id)
+    if not chat_session:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Office chat '{chat_id}' not found.")
+
+    if chat_session.chat_status in (ChatStatus.completed, ChatStatus.no_availability, ChatStatus.unable_to_resolve, ChatStatus.cancelled):
+        messages = await list_office_chat_messages(chat_id)
+        uqs = await list_unresolved_questions(chat_session.session_id, chat_id=chat_id)
+        return _build_office_chat_view(chat_session, messages, uqs, next_action="chat_already_concluded")
+
+    scheme = await get_session_scheme(chat_session.session_id, chat_session.scheme_id)
+    if not scheme:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scheme not found for chat session.")
+
+    office = await get_office_contact(chat_session.office_id) if chat_session.office_id else await get_office_contact_by_scheme(chat_session.scheme_id)
+    prefs = await get_appointment_preferences(chat_session.session_id, chat_session.scheme_id)
+    messages = await list_office_chat_messages(chat_id)
+    last_msg = messages[-1] if messages else None
+    current_turn = last_msg.turn_index if last_msg else 0
+
+    # 1. Representative turn (current_turn + 1)
+    sim_service = OfficeSimulatorService()
+    scenario_id = (payload.scenario_id if payload and payload.scenario_id else None) or chat_session.scenario_id or "scenario_a_success"
+    rep_result = sim_service.process_turn(
+        scenario_id=scenario_id,
+        turn_index=current_turn + 1,
+        assistant_message=last_msg.message_text if last_msg else "",
+        preferences=prefs,
+        office=office,
+    )
+
+    rep_msg = OfficeChatMessage(
+        chat_id=chat_id,
+        sender="simulated_office",
+        message_text=rep_result.message,
+        turn_index=current_turn + 1,
+        metadata=rep_result.metadata,
+    )
+    await add_office_chat_message(rep_msg)
+
+    # 2. Action Agent decision (current_turn + 2)
+    scheme_ctx = SchemeContext(
+        id=scheme.id,
+        name=scheme.name,
+        department=getattr(scheme, "department", None),
+        official_sources=getattr(scheme, "official_sources", []),
+    )
+    all_msgs = messages + [rep_msg]
+    asst_decision = decide_chat_turn(
+        chat_session=chat_session,
+        preferences=prefs,
+        office=office,
+        scheme=scheme_ctx,
+        history=all_msgs,
+        representative_message=rep_result.message,
+    )
+
+    asst_msg = OfficeChatMessage(
+        chat_id=chat_id,
+        sender="unlocked",
+        message_text=asst_decision.assistant_message,
+        turn_index=current_turn + 2,
+        metadata={"next_action": asst_decision.next_action, "outcome": asst_decision.outcome},
+    )
+    await add_office_chat_message(asst_msg)
+
+    # 3. Update session state
+    chat_session.chat_status = asst_decision.conversation_status
+    if asst_decision.appointment_offer:
+        chat_session.appointment = asst_decision.appointment_offer
+        chat_session.appointment_status = asst_decision.appointment_offer.status
+    elif asst_decision.conversation_status == ChatStatus.no_availability:
+        chat_session.appointment_status = AppointmentStatus.no_availability
+        chat_session.appointment = None
+    elif asst_decision.conversation_status == ChatStatus.unable_to_resolve:
+        chat_session.appointment_status = AppointmentStatus.not_requested
+        chat_session.appointment = None
+
+    if asst_decision.conversation_status in (ChatStatus.completed, ChatStatus.no_availability, ChatStatus.unable_to_resolve):
+        chat_session.completed_at = now_utc()
+
+    # Calendar invite generation on explicit simulated confirmation
+    if chat_session.appointment_status == AppointmentStatus.simulated_confirmed and chat_session.appointment:
+        ics_text = _generate_simulated_ics(scheme, chat_session.appointment)
+        if ics_text:
+            chat_session.appointment.calendar_ics = ics_text
+
+        # Record in appointments table
+        try:
+            from datetime import date
+            from agent4.office_chat_agent import parse_time_str
+            apt_d = date.fromisoformat(chat_session.appointment.date) if chat_session.appointment.date else None
+            apt_t = parse_time_str(chat_session.appointment.time) if chat_session.appointment.time else None
+            if apt_d and apt_t:
+                apt_id = f"sim_apt_{chat_session.chat_id}"
+                await create_appointment(
+                    session_id=chat_session.session_id,
+                    appointment_id=apt_id,
+                    purpose=f"[SIMULATED] Document verification for {scheme.name}",
+                    scheduled_at_utc=datetime.combine(apt_d, apt_t).replace(tzinfo=timezone.utc),
+                    location=chat_session.appointment.location or (office.office_name if office else "Office"),
+                    notes="Simulated appointment created via Office Chat Simulator.",
+                    status="scheduled",
+                    status_source="simulated_confirmed",
+                    related_task_id=f"chat_{chat_session.chat_id}",
+                )
+        except Exception as exc:
+            logger.warning("Could not persist simulated appointment row: %s", exc)
+
+    await update_office_chat_session(chat_session)
+
+    # 4. Record UnresolvedQuestions if raised
+    if asst_decision.unresolved_questions:
+        for q_text in asst_decision.unresolved_questions:
+            uq = UnresolvedQuestion(
+                chat_id=chat_id,
+                session_id=chat_session.session_id,
+                question_text=q_text,
+                receiver_whatsapp_number=asst_decision.contact_handoff.whatsapp_number if asst_decision.contact_handoff else None,
+                contact_source=ContactSource.receiver_provided if asst_decision.contact_handoff else ContactSource.website,
+                draft_message=asst_decision.contact_handoff.suggested_draft if asst_decision.contact_handoff else None,
+                click_to_chat_url=asst_decision.contact_handoff.click_to_chat_url if asst_decision.contact_handoff else None,
+            )
+            await create_unresolved_question(uq)
+
+    updated_msgs = await list_office_chat_messages(chat_id)
+    uqs = await list_unresolved_questions(chat_session.session_id, chat_id=chat_id)
+    return _build_office_chat_view(chat_session, updated_msgs, uqs, next_action=asst_decision.next_action)
+
+
+@app.post(
+    "/api/office-chats/{chat_id}/user-input",
+    response_model=OfficeChatView,
+    tags=["Office Chat Simulator"],
+)
+async def api_submit_office_chat_user_input(
+    chat_id: str = PathParam(..., description="Office chat ID"),
+    payload: UserInputRequest = ...,
+):
+    """
+    Handle applicant decision on offered slot (approval/rejection) or answer to unresolved question.
+    """
+    chat_session = await get_office_chat_session(chat_id)
+    if not chat_session:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Office chat '{chat_id}' not found.")
+
+    messages = await list_office_chat_messages(chat_id)
+    turn_idx = (messages[-1].turn_index + 1) if messages else 1
+
+    scheme = await get_session_scheme(chat_session.session_id, chat_session.scheme_id)
+
+    if payload.action == "approve_slot":
+        if payload.user_approved_slot:
+            chat_session.appointment_status = AppointmentStatus.simulated_confirmed
+            chat_session.chat_status = ChatStatus.completed
+            chat_session.completed_at = now_utc()
+            if chat_session.appointment:
+                chat_session.appointment.status = AppointmentStatus.simulated_confirmed
+                if scheme:
+                    ics_text = _generate_simulated_ics(scheme, chat_session.appointment)
+                    if ics_text:
+                        chat_session.appointment.calendar_ics = ics_text
+
+            # Record user confirmation message
+            confirm_msg = OfficeChatMessage(
+                chat_id=chat_id,
+                sender="unlocked",
+                message_text="The applicant has approved and confirmed this appointment slot in the simulation.",
+                turn_index=turn_idx,
+            )
+            await add_office_chat_message(confirm_msg)
+        else:
+            chat_session.appointment_status = AppointmentStatus.cancelled
+            chat_session.chat_status = ChatStatus.cancelled
+            cancel_msg = OfficeChatMessage(
+                chat_id=chat_id,
+                sender="unlocked",
+                message_text="The applicant declined the offered appointment slot.",
+                turn_index=turn_idx,
+            )
+            await add_office_chat_message(cancel_msg)
+
+        await update_office_chat_session(chat_session)
+
+    elif payload.action == "submit_info" and payload.unresolved_question_id:
+        uq = await get_unresolved_question(payload.unresolved_question_id)
+        if uq:
+            uq.status = UnresolvedQuestionStatus.resolved
+            await update_unresolved_question(uq)
+
+    updated_msgs = await list_office_chat_messages(chat_id)
+    uqs = await list_unresolved_questions(chat_session.session_id, chat_id=chat_id)
+    return _build_office_chat_view(chat_session, updated_msgs, uqs)
+
+
+@app.post(
+    "/api/office-chats/{chat_id}/finish",
+    response_model=OfficeChatView,
+    tags=["Office Chat Simulator"],
+)
+async def api_finish_office_chat(
+    chat_id: str = PathParam(..., description="Office chat ID"),
+):
+    """Conclude or cancel an office chat session."""
+    chat_session = await get_office_chat_session(chat_id)
+    if not chat_session:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Office chat '{chat_id}' not found.")
+
+    if chat_session.chat_status != ChatStatus.completed:
+        chat_session.chat_status = ChatStatus.completed
+        chat_session.completed_at = now_utc()
+        await update_office_chat_session(chat_session)
+
+    messages = await list_office_chat_messages(chat_id)
+    uqs = await list_unresolved_questions(chat_session.session_id, chat_id=chat_id)
+    return _build_office_chat_view(chat_session, messages, uqs)
+
+
+@app.get(
+    "/api/office-chats/{chat_id}/outcome",
+    response_model=OfficeChatOutcomeView,
+    tags=["Office Chat Simulator"],
+)
+async def api_get_office_chat_outcome(
+    chat_id: str = PathParam(..., description="Office chat ID"),
+):
+    """Retrieve final appointment and follow-up outcome for a simulated chat."""
+    chat_session = await get_office_chat_session(chat_id)
+    if not chat_session:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Office chat '{chat_id}' not found.")
+
+    uqs = await list_unresolved_questions(chat_session.session_id, chat_id=chat_id)
+    cal_ics = chat_session.appointment.calendar_ics if chat_session.appointment else None
+
+    # Summary and next steps formulation
+    summary = ""
+    next_steps = []
+    if chat_session.appointment_status == AppointmentStatus.simulated_confirmed:
+        summary = f"Simulated appointment confirmed for {chat_session.appointment.date} at {chat_session.appointment.time}."
+        next_steps = [
+            "Download and review simulated calendar invite (.ics).",
+            "Bring required checklist documents to office verification.",
+        ]
+    elif chat_session.appointment_status == AppointmentStatus.awaiting_user_approval:
+        summary = "Appointment slot offered; pending citizen approval."
+        next_steps = ["Review proposed slot time and confirm or decline."]
+    elif chat_session.chat_status == ChatStatus.no_availability:
+        summary = "No appointment slots available in the requested window."
+        next_steps = ["Select a different day or window, or apply directly on portal."]
+    elif chat_session.chat_status == ChatStatus.unable_to_resolve:
+        summary = "Simulated enquiry could not be completed over this channel."
+        next_steps = ["Contact the official office helpline or visit the portal."]
+    else:
+        summary = f"Office communication session status: {chat_session.chat_status}."
+        if uqs:
+            next_steps.append("Address open unresolved questions via WhatsApp or email draft.")
+
+    return OfficeChatOutcomeView(
+        chat_id=chat_session.chat_id,
+        session_id=chat_session.session_id,
+        scheme_id=chat_session.scheme_id,
+        simulation_mode=chat_session.simulation_mode,
+        chat_status=chat_session.chat_status,
+        appointment_status=chat_session.appointment_status,
+        appointment=chat_session.appointment,
+        unresolved_questions=uqs,
+        calendar_ics=cal_ics,
+        summary=summary,
+        next_steps=next_steps,
+    )
+
+
+@app.get(
+    "/api/sessions/{session_id}/unresolved-questions",
+    response_model=list[UnresolvedQuestion],
+    tags=["Office Chat Simulator"],
+)
+async def api_list_session_unresolved_questions(
+    session_id: str = PathParam(..., description="Active session ID"),
+):
+    """List all outstanding unresolved questions for a session."""
+    return await list_unresolved_questions(session_id)
+
+
+@app.post(
+    "/api/unresolved-questions/{question_id}/draft",
+    response_model=UnresolvedQuestion,
+    tags=["Office Chat Simulator"],
+)
+async def api_update_unresolved_question_draft(
+    question_id: str = PathParam(..., description="Unresolved question ID"),
+    payload: UnresolvedQuestionDraftRequest = ...,
+):
+    """Update follow-up draft message and refresh Click-to-Chat URL."""
+    uq = await get_unresolved_question(question_id)
+    if not uq:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Question '{question_id}' not found.")
+
+    uq.draft_message = payload.draft_message
+    uq.status = UnresolvedQuestionStatus.draft_prepared
+    if uq.receiver_whatsapp_number:
+        uq.click_to_chat_url = format_whatsapp_click_url(uq.receiver_whatsapp_number, payload.draft_message)
+
+    return await update_unresolved_question(uq)
+
+
+@app.post(
+    "/api/unresolved-questions/{question_id}/mark-sent",
+    response_model=UnresolvedQuestion,
+    tags=["Office Chat Simulator"],
+)
+async def api_mark_unresolved_question_sent(
+    question_id: str = PathParam(..., description="Unresolved question ID"),
+):
+    """Record that citizen marked the WhatsApp/email message as sent."""
+    uq = await get_unresolved_question(question_id)
+    if not uq:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Question '{question_id}' not found.")
+
+    uq.status = UnresolvedQuestionStatus.user_marked_sent
+    return await update_unresolved_question(uq)
+
 
 
 if __name__ == "__main__":

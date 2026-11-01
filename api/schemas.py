@@ -6,7 +6,7 @@ adhering strictly to docs/agents.md and plan.md.
 """
 from __future__ import annotations
 
-from datetime import date, time
+from datetime import date, datetime, time
 from typing import Any, Literal, Optional, Union
 from pydantic import BaseModel, ConfigDict, Field
 
